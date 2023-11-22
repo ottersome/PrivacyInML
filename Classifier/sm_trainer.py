@@ -49,7 +49,6 @@ def setup_logger(name, level=logging.INFO):
 def import_images(path, samples_train: List, samples_test: List):
     idx0 = int(re.sub("[a-zA-Z]", "", dir)) - 1
     for i, file in enumerate(os.listdir(path)):
-        assert file.endswith(".png")
         # Import file as a grayscale numpy array
         img = (cv.imread(os.path.join(path, file), cv.IMREAD_GRAYSCALE) / 255).reshape(
             1, 10304
@@ -60,62 +59,45 @@ def import_images(path, samples_train: List, samples_test: List):
             samples_test.append([img, idx0])
 
 
-# %% Declare global arrays
+# %% Declare global structures
 args = apfun()
 logger = setup_logger("main", logging.DEBUG)
 key = jax.random.PRNGKey(42)
 key, WKey, BKey = jax.random.split(key, 3)
 
-# %% Initial Data structures
-# Create an empty array of 40x10x(92*112)
-# array = jnp.empty((40, 10, 10304))
-
-# %% Dataset parsing
-# Import the AT&T faces dataset
-logger.info("Loading images into ds")
-train_ds = []
-test_ds = []
-dir_count = 0
-if os.path.exists(args.ds_path):
-    # Iterate over it
-    dirlist = os.listdir(args.ds_path)
-    dirlist.sort(key=lambda f: int(re.sub("[a-zA-Z]", "", f)))
-    logger.debug(f"Amount of classes {len(dirlist)}")
-    for dir in dirlist:
-        dir_count += 1
-        rel_dir = os.path.join(args.ds_path, dir)
-        import_images(rel_dir, train_ds, test_ds)
-
-assert dir_count == 40, f"You only checked on {dir_count}"
-# Shuffle the train ds CHECK: I don't think this is necessary though(cuz no batching)
-logger.info("Formatting into JAX friendly.")
-logger.info(f" Using {len(train_ds)} samples")
-np.random.shuffle(train_ds)
-# Make it into a form usable by JAX
-ds = jnp.array([img for img, _ in train_ds]).squeeze()
-labels = jnp.array([lbl for _, lbl in train_ds])
-
-
-# Create the Weight and Biases for the input
-logger.info("Creating SoftMax Model")
-
 initializer = nn.initializers.glorot_normal()
-# TODO: maybe initialize them with  normal distribution or some other one
 W = initializer(WKey, (10304, 40), dtype=jnp.float32)
-# W = jnp.zeros((10304, 40))
 b = initializer(BKey, (1, 40), jnp.float32)
 
+# Import the AT&T faces dataset
+logger.info("Loading images into ds")
+train_ds_n_labels = []
+test_ds_n_labels = []
+if os.path.exists(args.ds_path):
+    # Iterate over it
+    for dir in os.listdir(args.ds_path):
+        rel_dir = os.path.join(args.ds_path, dir)
+        import_images(rel_dir, train_ds_n_labels, test_ds_n_labels)
 
-# %% Softmax Model
+# Shuffle the train ds
+logger.info("Formatting into JAX friendly.")
+logger.info(f" Using {len(train_ds_n_labels)} samples")
+
+np.random.shuffle(train_ds_n_labels)
+# Make it into a form usable by JAX
+ds = jnp.array([img for img, _ in train_ds_n_labels]).squeeze()
+labels = jnp.array([lbl for _, lbl in train_ds_n_labels])
+
+
+# %% Softmax Model and Components
+logger.info("Creating SoftMax Model")
+
+
 # Define the softmax model
 def softmax(x):
     """Compute softmax values for each sets of scores in x."""
     e_x = jnp.exp(x)
     return e_x / e_x.sum(axis=0)
-
-
-# %% Train the coefficients
-logger.info("Training SoftMax Model")
 
 
 # Define the loss function
@@ -144,32 +126,28 @@ def sgd(W, b, x, y, lr=1e-2):
 epoch_bar = tqdm(total=args.epochs, desc="Epoch")
 total_batches = math.ceil(ds.shape[0] / args.batch_size)
 
-tds = jnp.array([img for img, _ in test_ds])
-tlbls = jnp.array([lbl for _, lbl in test_ds])
+test_ds = jnp.array([img for img, _ in test_ds_n_labels])
+test_labels = jnp.array([lbl for _, lbl in test_ds_n_labels])
 cur_accuracy = 0
 for e in range(args.epochs):
     loss = 0
     for x in range(total_batches):
         i = x * args.batch_size
         j = np.min([i + args.batch_size, len(ds)])
-        b_ds = ds[i:j, :]
-        b_lbls = labels[i:j]
-        loss = loss_fn(W, b, b_ds, b_lbls)
+
+        batched_ds = ds[i:j, :]
+        batched_labels = labels[i:j]
+        loss = loss_fn(W, b, batched_ds, batched_labels)
+
         # SGD
-        W, b = sgd(W, b, b_ds, b_lbls)
-    preds = softmax(jnp.dot(tds, W) + b).squeeze()
-    cur_accuracy = jnp.sum(jnp.argmax(preds, axis=1) == tlbls) / preds.shape[0]
+        W, b = sgd(W, b, batched_ds, batched_labels)
+
+    # Validation every epoch
+    preds = softmax(jnp.dot(test_ds, W) + b).squeeze()
+    cur_accuracy = jnp.sum(jnp.argmax(preds, axis=1) == test_labels) / preds.shape[0]
     epoch_bar.set_description(f"Epoch: {e} Loss: {loss}, Accuracy {cur_accuracy}")
     # Test the model
     epoch_bar.update(1)
-
-# %% Testing the model
-logger.info("Testing SoftMax Model")
-# Test the model
-logger.info("Predicting")
-# Predict
-# Get the accuracy
-# acc = jnp.mean(jnp.argmax(preds, axis=1) == tlbls)
 
 # %% Save the weigths
 logger.info("Saving weights")
