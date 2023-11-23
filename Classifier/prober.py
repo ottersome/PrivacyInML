@@ -17,11 +17,16 @@ from tqdm import tqdm
 from model_funcs import softmax
 from utils import import_images, setup_logger
 
+# plt.style.use("rose-pine")
+
 
 def apfun():
     ap = ArgumentParser()
     ap.add_argument("--ds_path", default="./faces")
-    ap.add_argument("--epochs", default=100, type=int)
+    ap.add_argument("--epochs", default=10000, type=int)
+    ap.add_argument(
+        "--recon_dir", default="./recons", type=str, help="Dir to place reconstructions"
+    )
     return ap.parse_args()
 
 
@@ -41,14 +46,27 @@ def loss_fn(x, W, b, label: int):
             :,
             label
             # jnp.arange(preds.shape[0]), jnp.full((1, 16), label)
-        ]  # HACK: hardcoded batch size
+        ]
+        + penalty(x)
     )  # HACK: change 40 to softcoded
+
+
+# Unecessary but better to keep images well formatted
+def penalty(x):
+    """
+    In order to make sure pixel values are between 0 and 1
+    """
+    # Get element-wise max between x and an array of 1:
+    return jnp.mean(
+        jnp.square(jnp.maximum(jnp.zeros_like(x), x - 1))
+        + jnp.square(jnp.minimum(jnp.zeros_like(x), x))
+    )
 
 
 grad_loss = grad(loss_fn, argnums=0)
 
 
-def sgd(x, W, b, label, lr=0.9):
+def sgd(x, W, b, label, lr=0.1):
     grado = lr * grad_loss(x, W, b, label)
     return x - grado
 
@@ -66,32 +84,44 @@ def main_loop(label, W: jnp.ndarray, b: jnp.ndarray):
     avg_pred = jnp.mean(jnp.argmax(preds, axis=1) == label)
     logger.info(f"🚇 Average pred is {avg_pred}")
 
+    # Exampl of Subject you want:
+    subject_example = trueths[1, :].reshape(112, 92)
+
     # Reversal Loop
     logger.info(f"Working with label {label}")
     ebar = tqdm(total=args.epochs, desc="Reconstruction Epoch", leave=False)
     # Evaluating on real images
 
-    # x = initializer(GKey, (16, 10304), dtype=jnp.float32)
-    x = jnp.zeros((16, 10304))
+    # x = initializer(GKey, (1, 10304), dtype=jnp.float32)
+    x = jnp.zeros((1, 10304))
+    # Initialize X to be gaussian (mostly) withon 0 and 1 (element wise) with variance of 0.1
+    # x = random.normal(GKey, (1, 10304), dtype=jnp.float32) * 0.1 + 0.5
+    # Ititialize x to b uniform in 0-1
+    # x = random.uniform(GKey, (1, 10304), dtype=jnp.float32)
     for _ in range(args.epochs):
         # Get Predictions
-        loss = 0
-        for b in range(16):
-            loss = loss_fn(x, W, b, label)
+        loss = loss_fn(x, W, b, label)
 
-            x = sgd(x, W, b, label)
+        # x = sgd(x, W, b, label)
+        # Same as above but clipped
+        # x = jnp.clip(sgd(x, W, b, label), 0, 1)
+        x = sgd(x, W, b, label)
 
         ebar.set_description(f"Reconstruction Epoch Loss {loss}")
         ebar.update(1)
-    x = x.mean(axis=0).reshape((92, 112))
-    # Show X as an image. Where x : jnp.ndarray
-    plt.figure()
+
+    # x = x.mean(axis=0).reshape((92, 112))
+    x = x.reshape((112, 92))
+    # Show x and subject_example as image side by side in pylot
+    plt.subplot(1, 2, 1)
+    plt.title("Original Image")
+    plt.imshow(subject_example, cmap="gray")
+    plt.subplot(1, 2, 2)
+    plt.title("Reconstructed Image")
     plt.imshow(x, cmap="gray")
-    plt.show()
-
-
-def reversal_loop():
-    pass
+    # Dont show but save instead
+    plt.savefig(os.path.join(args.recon_dir, f"{label}.png"))
+    # plt.show()
 
 
 if __name__ == "__main__":
@@ -99,11 +129,13 @@ if __name__ == "__main__":
     dirlist = list(os.listdir(args.ds_path))
     dirbar = tqdm(total=len(dirlist), desc="Iterating through sample", leave=True)
 
+    os.makedirs(args.recon_dir)
+
     # Load the weights
     W = jnp.load("./weights/W.npy")
     b = jnp.load("./weights/b.npy")
 
-    for dir in dirlist[:1]:
+    for dir in dirlist:
         id = int(re.sub("[a-zA-Z]", "", dir)) - 1
         dirbar.set_description(f"Iterating through sample {id}")
         main_loop(id, W, b)
