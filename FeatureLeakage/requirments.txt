@@ -1,0 +1,3 @@
+pandas
+copencv-python
+matplotlib

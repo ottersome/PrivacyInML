@@ -1,6 +1,15 @@
 {
   "configurations": [
     {
+      "name": "Python: Remote Debug",
+      "type": "python",
+      "request": "attach",
+      "connect": {
+        "host": "127.0.0.1",
+        "port": 8080
+      }
+    },
+    {
       "name": "utkface",
       "type": "python",
       "request": "launch",
@@ -8,7 +17,7 @@
       "python": "/home/ottersome/miniconda3/envs/research/bin/python",
       "stopOnEntry": false,
       "debugOptions": [],
-      "program": "${workspaceFolder}/main.py"
+      "program": "${workspaceFolder}/main_simple.py"
     }
   ]
 }

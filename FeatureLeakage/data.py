@@ -1,15 +1,22 @@
 """
 Creates Dataset
 """
-import os
-from pathlib import Path, PosixPath
+import random
+from logging import DEBUG
+from math import ceil
+from pathlib import Path
 
 import cv2
+import pandas as pd
 import torch
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
+from utils import create_logger, show_image
+
 order = ["age", "gender", "race", "datentime"]
+
+data_logger = create_logger("data", DEBUG)
 
 
 def preprocess_image(image):
@@ -18,6 +25,50 @@ def preprocess_image(image):
     # Subtract by mean
     image = image - image.mean()
     return image
+
+
+def utk_parse_federated(
+    path: Path,
+    batch_size,
+    num_clients: int,
+    batch_of_insertion=7,
+    tt_split=0.8,
+    race_of_interest=1,
+):
+    """
+    Returns
+    -------
+        trains: List of samples for each client
+        test: overall test dataset
+        seggretated_data: seggretated races, to be used in extraneous logic
+    """
+    features, ages, _, races = utk_parse(path)
+    # We start with shuffling and corresponding labels
+    df = pd.DataFrame([features, ages, races], columns=["features", "ages", "race"])
+    # Take out all "races" = 1 to a different df
+    segg_df = df[df["races"] == race_of_interest]
+    seggretated_batches = ceil(len(segg_df) / batch_size)
+    data_logger.info(
+        f"We have {len(segg_df)} seggretated examples which at batch size{batch_size}"
+        f" will yield {seggretated_batches} seggretated batches starting from {batch_of_insertion}"
+    )
+    # drop rows with "race_of_interest" in them
+    df = df.drop(segg_df.index)
+
+    # Shuffle df and do train-test split
+    df = df.sample(frac=1)
+    df_train = df[: int(tt_split * len(df))]
+    df_test = df[int(tt_split * len(df)) :]
+
+    # Partition dataset for federated clients
+    cds = ceil(len(df) / num_clients)  # Client data size
+    clients_df_train = []
+    for c in range(num_clients):
+        clients_df_train.append(
+            df_train.iloc[c * (cds) : (c + 1) * (cds)].reset_index(drop=True)
+        )
+
+    return clients_df_train, df_test, segg_df
 
 
 def utk_parse(path: Path):
