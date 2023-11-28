@@ -3,11 +3,15 @@
     {
       "name": "Python: Remote Debug",
       "type": "python",
+      "host": "127.0.0.1",
       "request": "attach",
-      "connect": {
-        "host": "127.0.0.1",
-        "port": 8080
-      }
+      "port": 8080,
+      "pathMappings": [
+        {
+          "localRoot": "${workspaceFolder}",
+          "remoteRoot": "/root/work"
+        }
+      ]
     },
     {
       "name": "utkface",
