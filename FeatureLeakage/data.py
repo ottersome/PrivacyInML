@@ -5,8 +5,10 @@ import random
 from logging import DEBUG
 from math import ceil
 from pathlib import Path
+from typing import List
 
 import cv2
+import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import Dataset
@@ -42,10 +44,14 @@ def utk_parse_federated(
         test: overall test dataset
         seggretated_data: seggretated races, to be used in extraneous logic
     """
+    data_logger.info("Fetching normal utk_parse")
     features, ages, _, races = utk_parse(path)
     # We start with shuffling and corresponding labels
-    df = pd.DataFrame([features, ages, races], columns=["features", "ages", "race"])
+    data = {"img_data": features, "ages": ages, "races": races}
+    df = pd.DataFrame(data)
+    data_logger.info("Turned to df")
     # Take out all "races" = 1 to a different df
+    data_logger.info(f"Removing Races of interest. Prev lenght {len(df)}")
     segg_df = df[df["races"] == race_of_interest]
     seggretated_batches = ceil(len(segg_df) / batch_size)
     data_logger.info(
@@ -54,6 +60,7 @@ def utk_parse_federated(
     )
     # drop rows with "race_of_interest" in them
     df = df.drop(segg_df.index)
+    data_logger.info(f"Removed Races of interest. Now lenght {len(df)}")
 
     # Shuffle df and do train-test split
     df = df.sample(frac=1)
@@ -90,26 +97,27 @@ def utk_parse(path: Path):
                 for i, n in enumerate(file.name.split("_"))
                 # FIX: remove this weird jpg.chip from the files themselves
             }
-            ages.append(torch.tensor(split["age"], dtype=torch.float32))
-            genders.append(torch.tensor(split["gender"], dtype=torch.int))
+            ages.append(split["age"])
+            genders.append(split["gender"])
             races.append(split["race"])
             # load the image
             img = cv2.imread(str(file))
             img = preprocess_image(img)
-            img = torch.Tensor(img)
-            img = img.permute(2, 0, 1)
+            # Turn img from HxWxC into CxHxW
+            img = img.transpose()
             samples.append(img)
         fbar.update(1)
     return samples, ages, genders, races
 
 
 class UTKDataset(Dataset):
-    def __init__(self, imgs, labels):
-        self.imgs = imgs
-        self.labels = labels
+    def __init__(self, imgs: List, ages: List, races):
+        self.imgs = torch.Tensor(np.array(imgs)).to(torch.float32)
+        self.ages = torch.Tensor(ages).to(torch.float32)
+        self.races = torch.Tensor(races).to(torch.int)
 
     def __len__(self):
         return len(self.imgs)
 
     def __getitem__(self, idx):
-        return self.imgs[idx], self.labels[idx]
+        return self.imgs, self.ages[idx]

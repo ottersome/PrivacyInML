@@ -1,4 +1,3 @@
-import multiprocessing as mp
 from argparse import ArgumentParser
 from logging import DEBUG
 from pathlib import Path
@@ -7,6 +6,8 @@ from typing import Dict, List
 import debugpy
 import pandas as pd
 import torch
+import torch.multiprocessing as mp
+from debugpy import breakpoint
 from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -61,11 +62,11 @@ def apfun():
 def create_clients_DataLoaders(train: List[pd.DataFrame], batch_size: int):
     cdls = []
     for df in train:
-        img_data: List = df["features"].tolist()
-        age_data: List = df["age"].tolist()
-        race_data: List = df["race"].tolist()
+        img_data: List = df["img_data"].values.tolist()
+        age_data: List = df["ages"].values.tolist()
+        race_data: List = df["races"].values.tolist()
 
-        ds = UTKDataset(img_data, zip(age_data, race_data))
+        ds = UTKDataset(img_data, age_data, race_data)
         cdls.append(DataLoader(ds, batch_size))
     return cdls
 
@@ -74,16 +75,21 @@ def federated_orchestrator(train_dl, args):
     manager = mp.Manager()
     processes = []
     barrier = mp.Barrier(len(train_dl))
-    shared_weights = manager.dict()
     client_models = [VGGRegressionModel().to(f"cuda:{i}") for i in range(len(train_dl))]
+    shared_weights = manager.list(
+        [
+            {k: v.cpu().numpy() for k, v in model.state_dict().items()}
+            for model in client_models
+        ]
+    )
     optimizers = [torch.optim.Adam(model.parameters()) for model in client_models]
     criterion = torch.nn.MSELoss()
 
-    for i, dataloader in train_dl:
+    for i, dataloader in enumerate(train_dl):
         model = client_models[i]
-        shared_weights = {k: v.cpu.numpy() for k, v in model.state_dict().items()}
+        main_logger.info(f"Creating Process for the {i}th client")
         p = mp.Process(
-            target=per_client_train,
+            target=per_client_trains,
             args=(
                 i,
                 dataloader,
@@ -95,10 +101,13 @@ def federated_orchestrator(train_dl, args):
                 barrier,
             ),
         )
+        main_logger.info(f"Starting Process for the {i}th client")
         p.start()
+        main_logger.info(f"Appending Process for the {i}th client")
         processes.append(p)
 
     # Wait for them to finish
+    main_logger.info(f"Joining Processes")
     for p in processes:
         p.join()
 
@@ -110,7 +119,7 @@ def avg_weights(weights: List[Dict]):
     return base
 
 
-def per_client_train(
+def per_client_trains(
     idx: int,
     dataloader: torch.utils.data.DataLoader,
     model: nn.Module,
@@ -120,7 +129,10 @@ def per_client_train(
     shared_weights,
     barrier,
 ):
+    print("Mis peltoas")
+    main_logger.debug(f"Client {idx} has entered the chat.")
     torch.cuda.set_device(idx)
+
     for _ in epochs:
         for batchx, batchy in dataloader:
             optimizer.zero_grad()
@@ -157,20 +169,28 @@ if __name__ == "__main__":
     args = apfun()
     main_logger.info("Starting script.")
     if args.debugpy:
-        conn_tuple = ("0.0.0.0", 42032)
+        conn_tuple = ("0.0.0.0", 8080)
         main_logger.info("Waiting for debugpy attachment on ")
         debugpy.listen(conn_tuple)
         debugpy.wait_for_client()
+
+    num_gpus = torch.cuda.device_count()
 
     # Load The Data
     data_path = Path(args.data_path)
     if not data_path.exists():
         raise FileNotFoundError(f"Path {data_path} does not exist")
-    per_client_train, test, segg_data = utk_parse_federated(
-        data_path, args.batch_size, args.batch_of_seggregation, args.segg_race
+    main_logger.info("Getting data")
+    trains, test, segg_data = utk_parse_federated(
+        path=data_path,
+        batch_size=args.batch_size,
+        num_clients=num_gpus,
+        batch_of_insertion=args.batch_of_seggregation,
+        tt_split=0.8,
+        race_of_interest=args.segg_race,
     )
 
-    dataloaders = create_clients_DataLoaders(per_client_train, args.batch_size)
+    dataloaders = create_clients_DataLoaders(trains, args.batch_size)
 
     # Train the models
     federated_orchestrator(dataloaders, args)

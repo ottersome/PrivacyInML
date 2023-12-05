@@ -6,6 +6,7 @@
       "host": "127.0.0.1",
       "request": "attach",
       "port": 8080,
+      "subProcess": true,
       "pathMappings": [
         {
           "localRoot": "${workspaceFolder}",
