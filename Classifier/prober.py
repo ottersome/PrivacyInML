@@ -27,6 +27,12 @@ def apfun():
     ap.add_argument(
         "--recon_dir", default="./recons", type=str, help="Dir to place reconstructions"
     )
+    ap.add_argument("--subject", default=-1, type=int, help="Subject to run this into.")
+    ap.add_argument(
+        "--gif",
+        action="store_true",
+        help="Whether or not to create a gif out of this",
+    )
     return ap.parse_args()
 
 
@@ -66,8 +72,10 @@ def penalty(x):
 grad_loss = grad(loss_fn, argnums=0)
 
 
-def sgd(x, W, b, label, lr=0.1):
-    grado = lr * grad_loss(x, W, b, label)
+def sgd(x, W, b, label, lr=0.001):
+    gl = grad_loss(x, W, b, label)
+    logger.info(f"Gradient min and max are {gl.min()} and {gl.max()}")
+    grado = lr * gl
     return x - grado
 
 
@@ -98,7 +106,7 @@ def main_loop(label, W: jnp.ndarray, b: jnp.ndarray):
     # x = random.normal(GKey, (1, 10304), dtype=jnp.float32) * 0.1 + 0.5
     # Ititialize x to b uniform in 0-1
     # x = random.uniform(GKey, (1, 10304), dtype=jnp.float32)
-    for _ in range(args.epochs):
+    for e in range(args.epochs):
         # Get Predictions
         loss = loss_fn(x, W, b, label)
 
@@ -106,6 +114,13 @@ def main_loop(label, W: jnp.ndarray, b: jnp.ndarray):
         # Same as above but clipped
         # x = jnp.clip(sgd(x, W, b, label), 0, 1)
         x = sgd(x, W, b, label)
+        if args.gif:
+            img = x.reshape((112, 92))
+            plt.plot()
+            plt.title("Reconstruction")
+            plt.imshow(img, cmap="gray")
+            plt.savefig(os.path.join(args.recon_dir, f"{label}_{e}.png"))
+            plt.close()
 
         ebar.set_description(f"Reconstruction Epoch Loss {loss}")
         ebar.update(1)
@@ -129,13 +144,15 @@ if __name__ == "__main__":
     dirlist = list(os.listdir(args.ds_path))
     dirbar = tqdm(total=len(dirlist), desc="Iterating through sample", leave=True)
 
-    os.makedirs(args.recon_dir)
+    os.makedirs(args.recon_dir, exist_ok=True)
 
     # Load the weights
     W = jnp.load("./weights/W.npy")
     b = jnp.load("./weights/b.npy")
-
-    for dir in dirlist:
-        id = int(re.sub("[a-zA-Z]", "", dir)) - 1
-        dirbar.set_description(f"Iterating through sample {id}")
-        main_loop(id, W, b)
+    if args.subject > 0:
+        main_loop(args.subject, W, b)
+    else:
+        for dir in dirlist:
+            id = int(re.sub("[a-zA-Z]", "", dir)) - 1
+            dirbar.set_description(f"Iterating through sample {id}")
+            main_loop(id, W, b)
