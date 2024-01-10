@@ -5,13 +5,17 @@ import random
 # Add imports in upper directory relative to this one
 import sys
 from os.path import exists, join
+from pathlib import Path
 from typing import List
 
 import torch
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
+from tqdm import tqdm
 
-from ...pml.utils import setup_logger
+parent_path = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(parent_path))
+from pml.utils import setup_logger  # type: ignore
 
 
 class Mode(enum.Enum):
@@ -43,7 +47,7 @@ class CelebADataset(Dataset):
     For CelebA Dataset
     """
 
-    NAMES = ["train_ds.parquet", "val_ds.parquet", "test_ds.parquet"]
+    NAMES = ["train_ds.pt", "val_ds.pt", "test_ds.pt"]
 
     def __init__(
         self,
@@ -60,7 +64,9 @@ class CelebADataset(Dataset):
         self.split_percents = split_percents
         self.cache_path = cache_path
 
-        self.logger = setup_logger(__class__.__name__)
+        self.logger = setup_logger(
+            __class__.__name__, log_path=Path(__file__).resolve().parent
+        )
 
         self.selected_attrs = selected_attrs
         self.transform = transform
@@ -68,12 +74,13 @@ class CelebADataset(Dataset):
 
         self.train_dataset = []
         self.val_dataset = []
+        self.test_dataset = []
 
         self.attr2idx = {}
         self.idx2attr = {}
 
         self.image_dim = [-1, -1]
-        check_files = [exists(join(self.root, name)) for name in self.NAMES]
+        check_files = [exists(join(self.cache_path, name)) for name in self.NAMES]
 
         if all(check_files):  # already cached
             self._load_cache()
@@ -89,9 +96,9 @@ class CelebADataset(Dataset):
 
     def _load_cache(self):
         self.logger.info("Loading cached data")
-        self.train_dataset = torch.load(join(self.root, self.NAMES[0]))
-        self.val_dataset = torch.load(join(self.root, self.NAMES[1]))
-        self.test_dataset = torch.load(join(self.root, self.NAMES[2]))
+        self.train_dataset = torch.load(join(self.cache_path, self.NAMES[0]))
+        self.val_dataset = torch.load(join(self.cache_path, self.NAMES[1]))
+        self.test_dataset = torch.load(join(self.cache_path, self.NAMES[2]))
 
     def _preprocess(self):
         """
@@ -104,7 +111,7 @@ class CelebADataset(Dataset):
         # Read attribut
         lines = [line.rstrip() for line in open(self.attr_path, "r")]
 
-        sample_image = Image.open(os.path.join(self.root, lines[2]))
+        sample_image = Image.open(os.path.join(self.root, "imgs", lines[2].split()[0]))
         self.image_dim[0] = sample_image.size[0]
         self.image_dim[1] = sample_image.size[1]
 
@@ -120,6 +127,7 @@ class CelebADataset(Dataset):
         nts = len(lines)  # num total samps
 
         self.logger.info("Adding samples")
+        bar = tqdm(lines, desc="Adding Samples")
         for i, line in enumerate(lines):
             split = line.split()
             filename = split[0]
@@ -129,7 +137,7 @@ class CelebADataset(Dataset):
             for attr_name in self.selected_attrs:
                 idx = self.attr2idx[attr_name]
                 label.append(values[idx] == "1")
-            if (i + 1) < nts * self.split_percents[0]:
+            if (i + 1) <= nts * self.split_percents[0]:
                 self.train_dataset.append([filename, label])
             if (i + 1) > nts * self.split_percents[0] and (i + 1) < nts * sum(
                 self.split_percents[:2]
@@ -137,19 +145,23 @@ class CelebADataset(Dataset):
                 self.val_dataset.append([filename, label])
             else:
                 self.test_dataset.append([filename, label])
+            bar.update(1)
 
-        self.logger.info("All samples constructed, saving the datasets to cache.")
+        self.logger.info(
+            f"All samples constructed, saving the datasets to cache dir {self.cache_path}"
+        )
         # Save all datasets for later use
-        torch.save(self.train_dataset, join(self.root, self.NAMES[0]))
-        torch.save(self.val_dataset, join(self.root, self.NAMES[1]))
-        torch.save(self.test_dataset, join(self.root, self.NAMES[2]))
+        os.makedirs(self.cache_path, exist_ok=True)
+        torch.save(self.train_dataset, join(self.cache_path, self.NAMES[0]))
+        torch.save(self.val_dataset, join(self.cache_path, self.NAMES[1]))
+        torch.save(self.test_dataset, join(self.cache_path, self.NAMES[2]))
 
         self.logger.info("Finished preprocessing the CelebA dataset...")
 
     def __getitem__(self, index):
         dataset = self.train_dataset if self.mode == Mode.TRAIN else self.val_dataset
         filename, label = dataset[index]
-        image = Image.open(os.path.join(self.root, filename))
+        image = Image.open(os.path.join(self.root, "imgs/", filename))
         return self.transform(image), torch.FloatTensor(label)
 
     def set_mode(self, mode: Mode):

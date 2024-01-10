@@ -5,18 +5,24 @@ Simple AutoEncoder
 # - [ ] Maybe collate
 
 import os
+import sys
 from argparse import ArgumentParser
+from pathlib import Path
 from typing import List
 
+import debugpy
 import torch
 import wandb
 from torch import nn
+from torchvision.transforms import transforms
 from tqdm import tqdm
 
 from ae.data import CelebADataLoader, CelebADataset, Mode
 from ae.models import ConvVAE
 
-from ..pml.utils import setup_logger
+parent_path = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(parent_path))
+from pml.utils import setup_logger  # type: ignore
 
 
 def af():
@@ -35,13 +41,23 @@ def af():
     )
     ap.add_argument("--wandb", action="store_true")
     ap.add_argument("--split_percents", default=[0.8, 0.1, 0.1])
-    return ap.parse_args()
+    ap.add_argument("-d", "--debug", action="store_true")
+    ap.add_argument("-p", "--port", default=42019)
 
+    args = ap.parse_args()
+    args.cache_path = Path(args.cache_path).resolve()
+    return args
 
-logger = setup_logger("MAIN", log_path=__file__)
 
 args = af()
-transform = lambda a: a
+logger = setup_logger("MAIN", log_path=Path(__file__).resolve().parent)
+
+if args.debug:
+    logger.info("Waiting for debugpy client to attach")
+    debugpy.listen(("0.0.0.0", args.port))
+    debugpy.wait_for_client()
+    logger.info("Client connected. Resuming with debugging session.")
+
 
 device = torch.device("cpu")
 if torch.cuda.is_available():
@@ -64,12 +80,12 @@ dataset = CelebADataset(
     os.path.join(args.data_dir, args.name_label_info),
     args.cache_path,
     args.selected_attrs,
-    transform,
+    transforms.ToTensor(),
     Mode.TRAIN,
     split_percents=args.split_percents,
 )
 dataloader = CelebADataLoader(
-    dataset, batch_size=args.batch_size, shuffle=True, num_workers=1  # , drop_last=True
+    dataset, batch_size=args.batch_size, shuffle=True, drop_last=True  # , num_workers=1
 )
 
 recon_criterion = nn.MSELoss()
