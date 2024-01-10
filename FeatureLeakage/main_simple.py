@@ -40,8 +40,8 @@ if __name__ == "__main__":
     labels_train, labels_test = (ages[:ts], ages[ts:])
 
     # Dataset and DataLoader
-    ds_train = UTKDataset(imgs_train, labels_train)
-    ds_test = UTKDataset(imgs_test, labels_test)
+    ds_train = UTKDataset(imgs_train, labels_train, races)
+    ds_test = UTKDataset(imgs_test, labels_test, races)
 
     dl_train = DataLoader(ds_train, batch_size=args.batch_size, shuffle=True)
     dl_test = DataLoader(ds_test, batch_size=args.batch_size, shuffle=True)

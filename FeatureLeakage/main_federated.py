@@ -29,6 +29,7 @@ def apfun():
         "--batch_size", default=32, type=int, help="Batch Size for Training"
     )
     ap.add_argument("-d", "--debugpy", help="Attach debugpy", action="store_true")
+    ap.add_argument("-p", "--port", default=42019, help="Port for debugpy")
     ap.add_argument("--lr", default=1e-3, type=float, help="Learning Rate")
     ap.add_argument("--epochs", default=200, type=int, help="Amount of Epochs")
     ap.add_argument(
@@ -71,11 +72,14 @@ def create_clients_DataLoaders(train: List[pd.DataFrame], batch_size: int):
     return cdls
 
 
-def federated_orchestrator(train_dl, args):
+def federated_orchestrator(train_dl: List[torch.utils.data.DataLoader], args):
     manager = mp.Manager()
     processes = []
-    barrier = mp.Barrier(len(train_dl))
     client_models = [VGGRegressionModel().to(f"cuda:{i}") for i in range(len(train_dl))]
+    barrier = mp.Barrier(len(client_models))
+    for cm in client_models:
+        cm.share_memory()
+
     shared_weights = manager.list(
         [
             {k: v.cpu().numpy() for k, v in model.state_dict().items()}
@@ -129,17 +133,15 @@ def per_client_trains(
     shared_weights,
     barrier,
 ):
-    print("Mis peltoas")
     main_logger.debug(f"Client {idx} has entered the chat.")
     torch.cuda.set_device(idx)
 
-    for _ in epochs:
+    for _ in range(epochs):
         for batchx, batchy in dataloader:
             optimizer.zero_grad()
             pred = model(batchx)
             loss = criterion(pred, batchy)
             loss.backward()
-            # optimizer.step()
 
             with shared_weights.get_lock():
                 shared_weights[idx] = {
@@ -168,8 +170,10 @@ def per_client_trains(
 if __name__ == "__main__":
     args = apfun()
     main_logger.info("Starting script.")
+    mp.set_start_method("spawn")
+
     if args.debugpy:
-        conn_tuple = ("0.0.0.0", 8080)
+        conn_tuple = ("0.0.0.0", 42019)
         main_logger.info("Waiting for debugpy attachment on ")
         debugpy.listen(conn_tuple)
         debugpy.wait_for_client()
