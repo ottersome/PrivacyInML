@@ -9,7 +9,7 @@ import sys
 from argparse import ArgumentParser
 from math import ceil
 from pathlib import Path
-from typing import List
+from typing import Any, Dict, List
 
 import debugpy
 import torch
@@ -35,10 +35,11 @@ def af():
     ap.add_argument("--name_label_info", default="list_attr_celeba.txt")
     ap.add_argument("--selected_attrs", type=List, default=["Male", "Eyeglasses"])
     ap.add_argument("--encoder_dim", type=int, default=128)
+
     ap.add_argument("--latent_dim", type=int, default=20)
-    ap.add_argument("--log_interval", type=int, default=1)
+    ap.add_argument("--log_interval", type=int, default=5)
     ap.add_argument(
-        "--eval_period", type=int, default=10, help="How many epochs before eval"
+        "--eval_period", type=int, default=500, help="How many epochs before eval"
     )
     ap.add_argument("--wandb", action="store_true")
     ap.add_argument("--split_percents", default=[0.8, 0.1, 0.1])
@@ -48,6 +49,50 @@ def af():
     args = ap.parse_args()
     args.cache_path = Path(args.cache_path).resolve()
     return args
+
+
+def validation_function(model: nn.Module, dataloader) -> Dict[str, Any]:
+    model.eval()
+    val_loss = 0
+    report_dict = {}
+
+    valbar = tqdm(range(len(dataloader)), desc="Validating", position=3)
+    with torch.no_grad():
+        for batch_idx, (batch_imgs, batch_labels) in enumerate(dataloader):
+            batch_imgs = batch_imgs.to(device)
+            batch_labels = batch_labels.to(device)
+
+            output = model(batch_imgs)
+            loss = recon_criterion(output, batch_imgs)
+            val_loss = (batch_idx * val_loss) / (batch_idx + 1) + (
+                1 / (batch_idx + 1)
+            ) * loss.item()
+
+            valbar.set_description(f"ValLoss {loss.item()}")
+            valbar.update(1)
+
+    report_dict["val_loss"] = val_loss
+
+    # Single sample from datalaoder
+    sample = next(iter(dataloader))[0].to(device)
+
+    # 進行推理，獲得重建的圖片
+    reconstructions = model(sample)
+
+    # 選擇一個樣本來可視化
+    original_image = sample[0]  # 假設inputs是一個batch的圖片
+    reconstructed_image = reconstructions[0]
+
+    # 使用wandb.Image封裝圖片
+    wandb_original = wandb.Image(original_image, caption="Original")
+    wandb_reconstruction = wandb.Image(
+        reconstructed_image, caption=f"{epoch}th Epoch Reconstruction"
+    )
+    # 上傳圖片到wandb
+    report_dict["val_examples"] = [wandb_original, wandb_reconstruction]
+
+    model.train()
+    return report_dict
 
 
 args = af()
@@ -104,8 +149,8 @@ penalty_optimizer = torch.optim.Adam(model.parameters())
 num_batches = len(dataloader)
 
 # Training Loop
-ebar = tqdm(range(args.epochs), desc="Epoch")
-bbar = tqdm(range(num_batches), desc="Batch")
+ebar = tqdm(range(args.epochs), desc="Epoch", position=1)
+bbar = tqdm(range(num_batches), desc="Batch", position=2)
 epoch_loss = 0
 for epoch in range(args.epochs):
     report_dict = {}
@@ -114,6 +159,7 @@ for epoch in range(args.epochs):
     epoch_loss = 0
     for batch_idx, (batch_imgs, batch_labels) in enumerate(dataloader):
         # Forward Pass
+        report_dict = {}
         batch_imgs = batch_imgs.to(device)
         batch_labels = batch_labels.to(device)
 
@@ -133,11 +179,22 @@ for epoch in range(args.epochs):
             1 / (batch_idx + 1)
         ) * loss.item()
 
+        report_dict["batch_loss"] = loss.item()
+
         recon_optimizer.step()
         # TODO: other optimizer
         # scheduler.step()
         bbar.set_description(f"RLoss {loss.item()}")
         bbar.update(1)
+
+        bbar.set_description(f"Validating {loss.item()}")
+
+        if batch_idx % args.eval_period == 0:
+            dataset.set_mode(Mode.VALIDATE)
+            report_dict.update(validation_function(model, dataloader))
+        if batch_idx % args.log_interval == 0:
+            if args.wandb:
+                wandb.log(report_dict)
 
     # DONE BATCH
 
@@ -145,45 +202,6 @@ for epoch in range(args.epochs):
     report_dict["epoch_loss"] = epoch_loss
 
     ebar.set_description(f"Last loss = {epoch_loss}, Validating.")
-    if epoch % args.eval_period == 0:
-        model.eval()
-        dataset.set_mode(Mode.VALIDATE)
-        val_loss = 0
-        with torch.no_grad():
-            for batch_idx, (batch_imgs, batch_labels) in enumerate(dataloader):
-                batch_imgs = batch_imgs.to(device)
-                batch_labels = batch_labels.to(device)
-
-                output = model(batch_imgs)
-                loss = recon_criterion(output, batch_imgs)
-                val_loss = (batch_idx * val_loss) / (batch_idx + 1) + (
-                    1 / (batch_idx + 1)
-                ) * loss.item()
-
-        report_dict["val_loss"] = val_loss
-
-        # Single sample from datalaoder
-        sample = next(iter(dataloader))
-
-        # 進行推理，獲得重建的圖片
-        reconstructions = model(sample)
-
-        # 選擇一個樣本來可視化
-        original_image = sample[0]  # 假設inputs是一個batch的圖片
-        reconstructed_image = reconstructions[0]
-
-        # 使用wandb.Image封裝圖片
-        wandb_original = wandb.Image(original_image, caption="Original")
-        wandb_reconstruction = wandb.Image(
-            reconstructed_image, caption=f"{epoch}th Epoch Reconstruction"
-        )
-        report_dict["val_example"][wandb_original, wandb_reconstruction]
-
-        # 上傳圖片到wandb
-        wandb.log({"examples": [wandb_original, wandb_reconstruction]})
-
-        # 可能只想上傳一個batch的圖片，所以可以break
-        break
 
     wandb.log(report_dict)
     ebar.update(1)
