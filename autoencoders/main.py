@@ -7,6 +7,7 @@ Simple AutoEncoder
 import os
 import sys
 from argparse import ArgumentParser
+from math import ceil
 from pathlib import Path
 from typing import List
 
@@ -28,7 +29,7 @@ from pml.utils import setup_logger  # type: ignore
 def af():
     ap = ArgumentParser()
     ap.add_argument("--epochs", default=10)
-    ap.add_argument("--batch_size", default=4)
+    ap.add_argument("--batch_size", default=32)
     ap.add_argument("--data_dir", default="./data")
     ap.add_argument("--cache_path", default="./.cache")
     ap.add_argument("--name_label_info", default="list_attr_celeba.txt")
@@ -99,13 +100,17 @@ recon_optimizer = torch.optim.Adam(model.parameters())
 penalty_optimizer = torch.optim.Adam(model.parameters())
 # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
 
+
+num_batches = len(dataloader)
+
 # Training Loop
 ebar = tqdm(range(args.epochs), desc="Epoch")
-# bbar = tqdm(range(args.epochs), desc="Batch")
+bbar = tqdm(range(num_batches), desc="Batch")
 epoch_loss = 0
 for epoch in range(args.epochs):
     report_dict = {}
     ebar.set_description(f"Last loss = {epoch_loss}, Going Through Batches")
+    bbar.reset()
     epoch_loss = 0
     for batch_idx, (batch_imgs, batch_labels) in enumerate(dataloader):
         # Forward Pass
@@ -131,6 +136,8 @@ for epoch in range(args.epochs):
         recon_optimizer.step()
         # TODO: other optimizer
         # scheduler.step()
+        bbar.set_description(f"RLoss {loss.item()}")
+        bbar.update(1)
 
     # DONE BATCH
 

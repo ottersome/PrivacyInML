@@ -108,6 +108,8 @@ class CelebADataset(Dataset):
         self.image_width = sample_image.size[0]
         self.image_height = sample_image.size[1]
 
+        self.logger.info(f"There is a total of {len(self.train_dataset)} samples")
+
     def _preprocess(self):
         """
         Preprocess CelebA Dataset
