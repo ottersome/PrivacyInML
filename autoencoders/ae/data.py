@@ -79,7 +79,9 @@ class CelebADataset(Dataset):
         self.attr2idx = {}
         self.idx2attr = {}
 
-        self.image_dim = [-1, -1]
+        self.image_width = -1
+        self.image_height = -1
+
         check_files = [exists(join(self.cache_path, name)) for name in self.NAMES]
 
         if all(check_files):  # already cached
@@ -100,6 +102,12 @@ class CelebADataset(Dataset):
         self.val_dataset = torch.load(join(self.cache_path, self.NAMES[1]))
         self.test_dataset = torch.load(join(self.cache_path, self.NAMES[2]))
 
+        sample_image = Image.open(
+            os.path.join(self.root, "imgs", self.train_dataset[0][0])
+        )
+        self.image_height = sample_image.size[0]
+        self.image_width = sample_image.size[1]
+
     def _preprocess(self):
         """
         Preprocess CelebA Dataset
@@ -112,8 +120,8 @@ class CelebADataset(Dataset):
         lines = [line.rstrip() for line in open(self.attr_path, "r")]
 
         sample_image = Image.open(os.path.join(self.root, "imgs", lines[2].split()[0]))
-        self.image_dim[0] = sample_image.size[0]
-        self.image_dim[1] = sample_image.size[1]
+        self.image_height = sample_image.size[0]
+        self.image_width = sample_image.size[1]
 
         all_attr_names = lines[1].split()
         for i, attr_name in enumerate(all_attr_names):

@@ -92,7 +92,8 @@ recon_criterion = nn.MSELoss()
 sensitive_penalty = nn.MSELoss()  # TODO:  set the right criterion
 
 # Get AutoEncoder
-model = ConvVAE(dataset.image_dim, args.encoder_dim, args.latent_dim).to(device)
+dims = [dataset.image_height, dataset.image_width]
+model = ConvVAE(dims, args.encoder_dim, args.latent_dim).to(device)
 # Optimizer
 recon_optimizer = torch.optim.Adam(model.parameters())
 penalty_optimizer = torch.optim.Adam(model.parameters())
