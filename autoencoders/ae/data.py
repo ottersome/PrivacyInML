@@ -105,8 +105,8 @@ class CelebADataset(Dataset):
         sample_image = Image.open(
             os.path.join(self.root, "imgs", self.train_dataset[0][0])
         )
-        self.image_height = sample_image.size[0]
-        self.image_width = sample_image.size[1]
+        self.image_width = sample_image.size[0]
+        self.image_height = sample_image.size[1]
 
     def _preprocess(self):
         """

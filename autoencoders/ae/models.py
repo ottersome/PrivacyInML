@@ -21,15 +21,23 @@ class ConvVAE(nn.Module):
         """
         super(ConvVAE, self).__init__()
         # Convolution Stages
-        strides = torch.LongTensor([1, 2])
+        strides = torch.LongTensor([2, 2])
         self.logger = setup_logger(
             __class__.__name__, DEBUG, log_path=Path(__file__).resolve().parent
         )
         # CHECK: I am reducing size appropriately
         self.og_size = image_dim
         self.last_img_size = (
-            torch.LongTensor(image_dim) // torch.prod(strides)
-        ).tolist()
+            torch.floor(
+                (
+                    (torch.LongTensor(image_dim) + (2 * 1) - (3 - 1) - 1)
+                    / torch.prod(strides)
+                    + 1
+                )
+            )
+            .to(torch.long)
+            .tolist()
+        )
         self.conv_seq = nn.Sequential(
             nn.Conv2d(3, 16, kernel_size=3, stride=strides.tolist()[0], padding=1),
             nn.ReLU(),
@@ -58,7 +66,7 @@ class ConvVAE(nn.Module):
             kernel_size=3,
             stride=strides.tolist()[1],
             padding=1,
-            # output_padding=1,
+            output_padding=0,
         )
         self.deconv2 = nn.ConvTranspose2d(
             16,
@@ -66,16 +74,21 @@ class ConvVAE(nn.Module):
             kernel_size=3,
             stride=strides.tolist()[0],
             padding=1,
-            # output_padding=1,
+            output_padding=1,
         )
 
     def forward(self, batch_imgs):
+        # Convolve
         conv_out = self.conv_seq(batch_imgs).view(batch_imgs.shape[0], -1)
-        self.logger.debug(f"Conv out shape {conv_out.shape}")
+
+        # Encode
         encoded = self.encoder(conv_out)
+
+        # Reparameterize
         mus, log_vars = (self.for_mus(encoded), self.for_vars(encoded))
         latent = self.reparameterize(mus, log_vars)
         # Deconvolve
+
         decoded = self.decoder(latent).view(
             batch_imgs.shape[0], 32, self.last_img_size[0], self.last_img_size[1]
         )
