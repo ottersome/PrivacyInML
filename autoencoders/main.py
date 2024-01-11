@@ -28,8 +28,8 @@ from pml.utils import setup_logger  # type: ignore
 
 def af():
     ap = ArgumentParser()
-    ap.add_argument("--epochs", default=10)
-    ap.add_argument("--batch_size", default=32)
+    ap.add_argument("--epochs", default=20)
+    ap.add_argument("--batch_size", default=64)
     ap.add_argument("--data_dir", default="./data")
     ap.add_argument("--cache_path", default="./.cache")
     ap.add_argument("--name_label_info", default="list_attr_celeba.txt")
@@ -38,6 +38,7 @@ def af():
 
     ap.add_argument("--latent_dim", type=int, default=20)
     ap.add_argument("--log_interval", type=int, default=5)
+    ap.add_argument("--recon_lr", type=int, default=1e-4)
     ap.add_argument(
         "--eval_period", type=int, default=500, help="How many epochs before eval"
     )
@@ -141,7 +142,7 @@ sensitive_penalty = nn.MSELoss()  # TODO:  set the right criterion
 dims = [dataset.image_height, dataset.image_width]
 model = ConvVAE(dims, args.encoder_dim, args.latent_dim).to(device)
 # Optimizer
-recon_optimizer = torch.optim.Adam(model.parameters())
+recon_optimizer = torch.optim.Adam(model.parameters(), lr=args.recon_lr)
 penalty_optimizer = torch.optim.Adam(model.parameters())
 # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
 
