@@ -1,0 +1,17 @@
+{
+  "downslopes": [
+    { "channel_out": 64, "maxpool_stride": 2 },
+    { "channel_out": 128, "maxpool_stride": 2 },
+    { "channel_out": 256, "maxpool_stride": 2 }
+  ],
+  "tunnel_convs": [
+    { "channel_out": 512 },
+    { "channel_out": 512 },
+    { "channel_out": 256 }
+  ],
+  "upslopes": [
+    { "channel_out": 256, "upsample_rate": 2 },
+    { "channel_out": 128, "upsample_rate": 2 },
+    { "channel_out": 64, "upsample_rate": 2 }
+  ]
+}
