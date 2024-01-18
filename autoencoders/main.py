@@ -4,6 +4,7 @@ Simple AutoEncoder
 # TODO:
 # - [ ] Maybe collate
 
+import json
 import os
 import sys
 from argparse import ArgumentParser
@@ -19,7 +20,7 @@ from torchvision.transforms import transforms
 from tqdm import tqdm
 
 from ae.data import CelebADataLoader, CelebADataset, Mode
-from ae.models import ConvVAE
+from ae.models import ConvVAE, UNet
 
 parent_path = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(parent_path))
@@ -36,7 +37,7 @@ def af():
     ap.add_argument("--selected_attrs", type=List, default=["Male", "Eyeglasses"])
     ap.add_argument("--encoder_dim", type=int, default=128)
 
-    ap.add_argument("--latent_dim", type=int, default=20)
+    ap.add_argument("--latent_dim", type=int, default=1024)
     ap.add_argument("--log_interval", type=int, default=5)
     ap.add_argument("--recon_lr", type=int, default=1e-4)
     ap.add_argument(
@@ -46,6 +47,7 @@ def af():
     ap.add_argument("--split_percents", default=[0.8, 0.1, 0.1])
     ap.add_argument("-d", "--debug", action="store_true")
     ap.add_argument("-p", "--port", default=42019)
+    ap.add_argument("--json_structure", default="./model_specs/unet0.json")
 
     args = ap.parse_args()
     args.cache_path = Path(args.cache_path).resolve()
@@ -140,7 +142,13 @@ sensitive_penalty = nn.MSELoss()  # TODO:  set the right criterion
 
 # Get AutoEncoder
 dims = [dataset.image_height, dataset.image_width]
-model = ConvVAE(dims, args.encoder_dim, args.latent_dim).to(device)
+json_structure = []
+with open(args.json_structure, "r") as f:
+    json_structure = json.load(f)
+
+# model = ConvVAE(dims, args.encoder_dim, args.latent_dim).to(device)
+logger.info(f"Running Model with struture {json.dumps(json_structure, indent=4)}")
+model = UNet(json_structure).to(device)
 # Optimizer
 recon_optimizer = torch.optim.Adam(model.parameters(), lr=args.recon_lr)
 penalty_optimizer = torch.optim.Adam(model.parameters())
