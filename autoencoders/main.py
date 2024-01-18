@@ -146,9 +146,12 @@ json_structure = []
 with open(args.json_structure, "r") as f:
     json_structure = json.load(f)
 
-# model = ConvVAE(dims, args.encoder_dim, args.latent_dim).to(device)
+# Get Image Data sizes from dataloader/dataset
+size = next(iter(dataloader))[0].shape
 logger.info(f"Running Model with struture {json.dumps(json_structure, indent=4)}")
-model = UNet(json_structure).to(device)
+model = UNet(
+    json_structure, {"batch_size": size[0], "height": size[2], "width": size[3]}
+).to(device)
 # Optimizer
 recon_optimizer = torch.optim.Adam(model.parameters(), lr=args.recon_lr)
 penalty_optimizer = torch.optim.Adam(model.parameters())

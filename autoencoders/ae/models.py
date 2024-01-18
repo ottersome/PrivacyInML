@@ -230,7 +230,7 @@ class DoubleTroubleUpScale(nn.Module):
 
 
 class UNet(nn.Module):
-    def __init__(self, specs: Dict):
+    def __init__(self, specs: Dict, og_size: Dict):
         super(UNet, self).__init__()
 
         # Down Slope
@@ -274,7 +274,16 @@ class UNet(nn.Module):
             )
             cout = spec["channel_out"]
             self.upslope.add_module(f"DTUp{i}", DoubleTroubleUpScale(cin, cout))
-        # TODO: Final 1x1 convolution(if necessary)
+
+        self.fit_to_og_size = nn.Sequential(
+            nn.Upsample((og_size["height"], og_size["width"]), mode="bilinear"),
+            nn.Conv2d(
+                in_channels=specs["upslopes"][-1]["channel_out"] // 2,
+                out_channels=3,
+                padding=1,
+                kernel_size=3,
+            ),
+        )
 
     def forward(self, x):
         skips = []
@@ -295,8 +304,9 @@ class UNet(nn.Module):
             cur_val = y
 
         # TODO: final 1x1 conv
+        final = self.fit_to_og_size(cur_val)
 
-        return cur_val
+        return final
 
 
 def center_crop_tensor(input_tensor, target_size):
