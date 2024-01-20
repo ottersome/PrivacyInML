@@ -205,8 +205,10 @@ class DoubleTroubleUpScale(nn.Module):
                 out_channels=cout,
                 kernel_size=3,
             ),
+            nn.BatchNorm2d(cout),
             nn.ReLU(),
             nn.Conv2d(in_channels=cout, out_channels=cout, kernel_size=3),
+            nn.BatchNorm2d(cout),
             nn.ReLU(),
             nn.Upsample(scale_factor=2, mode="bilinear"),
             nn.Conv2d(

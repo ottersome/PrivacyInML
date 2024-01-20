@@ -1,0 +1,30 @@
+{
+  "configurations": [
+    {
+      "name": "Python: Remote Debug",
+      "type": "python",
+      "host": "127.0.0.1",
+      "request": "attach",
+      "port": 42019,
+      "subProcess": true,
+      "pathMappings": [
+        {
+          "localRoot": "${workspaceFolder}",
+          "remoteRoot": "/home/racc/Lam/privacyinml/autoencoders/"
+        }
+      ]
+    },
+
+    {
+      "name": "main",
+      "type": "python",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "python": "/Users/rac716/miniforge3/envs/rs39/bin/python",
+      "stopOnEntry": false,
+      "debugOptions": [],
+      "program": "${workspaceFolder}/main.py",
+      "justMyCode": false
+    }
+  ]
+}
