@@ -8,17 +8,18 @@ import json
 import os
 import sys
 from argparse import ArgumentParser
+from datetime import datetime
 from math import ceil
 from pathlib import Path
 from typing import Any, Dict, List
 
 import debugpy
 import torch
-import wandb
 from torch import nn
 from torchvision.transforms import transforms
 from tqdm import tqdm
 
+import wandb
 from ae.data import CelebADataLoader, CelebADataset, Mode
 from ae.models import ConvVAE, UNet
 
@@ -43,11 +44,15 @@ def af():
     ap.add_argument(
         "--eval_period", type=int, default=500, help="How many epochs before eval"
     )
-    ap.add_argument("--wandb", action="store_true")
     ap.add_argument("--split_percents", default=[0.8, 0.1, 0.1])
     ap.add_argument("-d", "--debug", action="store_true")
     ap.add_argument("-p", "--port", default=42019)
     ap.add_argument("--json_structure", default="./model_specs/unet0.json")
+
+    ap.add_argument("-w", "--wandb", action="store_true")
+    ap.add_argument("--wrname", default=None, help="WANDB run name")
+    ap.add_argument("--wrnotes", default=None, help="WANDB run notes")
+    ap.add_argument("--wrtags", default=[], help="WANDB run tags")
 
     args = ap.parse_args()
     args.cache_path = Path(args.cache_path).resolve()
@@ -119,7 +124,13 @@ else:
 # Initialize Wandb
 if args.wandb:
     logger.info("🪄 Instantiating WandB")
-    wandb.init(project="PrivateAutoEncoder")
+    wandb.init(
+        project="PrivateAutoEncoder",
+        name=args.wrname,
+        notes=args.wrnotes,
+        tags=args.wrtags,
+        config=vars(args),
+    )
 else:
     logger.warn("⚠️ Not using Wandb")
 

@@ -1,6 +1,17 @@
 {
   "configurations": [
     {
+      "name": "main",
+      "type": "python",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "python": "/home/ottersome/miniconda3/envs/research/bin/python",
+      "stopOnEntry": false,
+      "debugOptions": [],
+      "program": "${workspaceFolder}/main.py",
+      "justMyCode": true
+    },
+    {
       "name": "Python: Remote Debug",
       "type": "python",
       "host": "127.0.0.1",
@@ -10,21 +21,9 @@
       "pathMappings": [
         {
           "localRoot": "${workspaceFolder}",
-          "remoteRoot": "/home/racc/Lam/privacyinml/autoencoders/"
+          "remoteRoot": "/root/work"
         }
       ]
-    },
-
-    {
-      "name": "main",
-      "type": "python",
-      "request": "launch",
-      "cwd": "${workspaceFolder}",
-      "python": "/Users/rac716/miniforge3/envs/rs39/bin/python",
-      "stopOnEntry": false,
-      "debugOptions": [],
-      "program": "${workspaceFolder}/main.py",
-      "justMyCode": false
     }
   ]
 }
