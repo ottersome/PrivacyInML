@@ -4,12 +4,16 @@ Working lightning Module
 from pathlib import Path
 from typing import List
 
+import cv2
 import lightning as L
+import numpy as np
 import torch
-import wandb
 from lightning.pytorch.loggers import WandbLogger
 from pml.utils import setup_logger  # type: ignore
 from torch import Tensor, nn
+from torch.optim.lr_scheduler import StepLR  # or any other scheduler
+
+import wandb
 
 
 class ReconstructionModule(L.LightningModule):
@@ -78,7 +82,9 @@ class ReconstructionModule(L.LightningModule):
         return loss
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.model.parameters(), lr=0.0002)
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=0.0002)
+        scheduler = StepLR(optimizer, step_size=1, gamma=0.5)
+        return {"optimizer": optimizer, "lr_scheduler": scheduler}
 
     def validation_step(self, ref_batches: List[Tensor], batch_idx):
         # Whole of validation is here:
@@ -97,6 +103,11 @@ class ReconstructionModule(L.LightningModule):
         # 選擇一個樣本來可視化
         original_image = batch_imgs[0]  # 假設inputs是一個batch的圖片
         reconstructed_image = reconstructions[0]
+        # Equalize Reconstructed Image
+        # reconstructed_image = reconstructed_image.squeeze().detach().cpu().numpy()
+        # reconstructed_image = reconstructed_image * 255
+        # reconstructed_image = reconstructed_image.astype(np.uint8)
+        # reconstructed_image = cv2.equalizeHist(reconstructed_image)
 
         # 使用wandb.Image封裝圖片
         if batch_idx == 0:

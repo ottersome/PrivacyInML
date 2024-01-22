@@ -334,7 +334,7 @@ class SimpleAutoEncoder(nn.Module):
         )
 
         self.protocombiner = nn.Sequential(
-            nn.Conv2d(128, 1, kernel_size=1, stride=1, padding=1), nn.Sigmoid()
+            nn.Conv2d(128, 1, kernel_size=1, stride=1, padding=0), nn.Sigmoid()
         )
 
     def forward(self, imgs):

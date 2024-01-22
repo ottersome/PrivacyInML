@@ -17,7 +17,6 @@ import debugpy
 import lightning as L
 import torch
 import torch.nn.functional as F
-import wandb
 from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.tuner.tuning import Tuner
@@ -25,6 +24,7 @@ from torch import nn
 from torchvision import transforms
 from tqdm import tqdm
 
+import wandb
 from ae.data import DataModule
 from ae.models import SimpleAutoEncoder, UNet
 from ae.modules import ReconstructionModule
@@ -39,7 +39,7 @@ torch.set_float32_matmul_precision("medium")
 def af():
     ap = ArgumentParser()
     ap.add_argument("--epochs", default=5)
-    ap.add_argument("--batch_size", default=8)
+    ap.add_argument("--batch_size", default=32)
     ap.add_argument("--data_dir", default="./data")
     ap.add_argument("--cache_path", default="./.cache")
     ap.add_argument("--name_label_info", default="list_attr_celeba.txt")
@@ -49,6 +49,7 @@ def af():
     ap.add_argument("--latent_dim", type=int, default=1024)
     ap.add_argument("--log_interval", type=int, default=5)
     ap.add_argument("--recon_lr", type=int, default=1e-3)
+    ap.add_argument("--checkpoint_path", default="./checkpoints")
     ap.add_argument(
         "--eval_period", type=int, default=500, help="How many epochs before eval"
     )
@@ -141,7 +142,6 @@ logger.info(f"Running Model with struture {json.dumps(json_structure, indent=4)}
 model = SimpleAutoEncoder()
 # gender_classifier =
 # Optimizer
-recon_optimizer = torch.optim.Adam(model.parameters(), lr=args.recon_lr)
 # penalty_optimizer = torch.optim.Adam(model.parameters())
 # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
 wandb_logger = None

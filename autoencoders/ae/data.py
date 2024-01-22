@@ -166,7 +166,9 @@ class DataModule(L.LightningDataModule):
         # Read attribut
         lines = [line.rstrip() for line in open(self.attr_path, "r")]
 
+        # Check Existance of Field
         sample_image = Image.open(os.path.join(self.root, "imgs", lines[2].split()[0]))
+
         self.image_height = sample_image.size[0]
         self.image_width = sample_image.size[1]
         self.channels = len(sample_image.getbands())
@@ -189,6 +191,17 @@ class DataModule(L.LightningDataModule):
             filename = split[0]
             values = split[1:]
             label = []
+
+            file_path = os.path.join(self.root, "imgs", filename)
+            if not os.path.exists(file_path):
+                self.logger.warn(f"Ignoring image {file_path} because not found.")
+                bar.update(1)
+                continue
+            # Check size
+            img = Image.open(file_path)
+            assert (
+                img.size[0] == self.image_height and img.size[1] == self.image_width
+            ), "Not matching sizes"
 
             for attr_name in self.selected_attrs:
                 idx = self.attr2idx[attr_name]
