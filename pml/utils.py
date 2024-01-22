@@ -13,7 +13,7 @@ def setup_logger(logger_name: str, level=logging.INFO, log_path=__file__):
     formatter = logging.Formatter(
         "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
-    fh = logging.FileHandler(os.path.join(log_path, "logs/", logger_name + ".log"))
+    fh = logging.FileHandler(os.path.join(log_path, "logs/", logger_name + ".log"), "w")
     sh = logging.StreamHandler()
     fh.setLevel(logging.DEBUG)
     sh.setLevel(level)

@@ -9,7 +9,7 @@ sys.path.insert(0, str(pml_path))
 from logging import DEBUG
 
 import torch
-from pml.utils import setup_logger  # type:ignore
+from pml.utils import setup_logger  # type: ignore
 from torch import nn
 
 
@@ -311,6 +311,43 @@ class UNet(nn.Module):
         final_logits = self.fit_to_og_size(cur_val)
 
         return final_logits
+
+
+class SimpleAutoEncoder(nn.Module):
+    def __init__(self):
+        super(SimpleAutoEncoder, self).__init__()
+        self.autoencoder = nn.Sequential(
+            # Encoder
+            nn.Conv2d(1, 8, kernel_size=3, stride=1, padding=1),
+            nn.LeakyReLU(inplace=True),
+            nn.AvgPool2d(kernel_size=2, stride=2),
+            nn.Conv2d(8, 12, kernel_size=3, stride=1, padding=1),
+            nn.LeakyReLU(inplace=True),
+            nn.AvgPool2d(kernel_size=2, stride=2),
+            # Decoder
+            nn.Conv2d(12, 256, kernel_size=3, stride=1, padding=1),
+            nn.LeakyReLU(inplace=True),
+            nn.Upsample(scale_factor=2, mode="nearest"),
+            nn.Conv2d(256, 128, kernel_size=3, stride=1, padding=1),
+            nn.LeakyReLU(inplace=True),
+            nn.Upsample(scale_factor=2, mode="nearest"),
+        )
+
+        self.protocombiner = nn.Sequential(
+            nn.Conv2d(128, 1, kernel_size=1, stride=1, padding=1), nn.Sigmoid()
+        )
+
+    def forward(self, imgs):
+        # x = torch.cat([imgs, same_proto], dim=1)
+        x = imgs
+        y = self.autoencoder(x)
+
+        # rec_same = torch.cat([x, same_proto], dim=1)
+        # rec_oppo = torch.cat([x, oppo_proto], dim=1)
+
+        return self.protocombiner(
+            y
+        )  # self.protocombiner(rec_same), self.protocombiner(rec_oppo)
 
 
 def center_crop_tensor(input_tensor, target_size):

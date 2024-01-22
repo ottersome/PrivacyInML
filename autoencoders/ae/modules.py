@@ -1,12 +1,14 @@
 """
 Working lightning Module
 """
+from pathlib import Path
 from typing import List
 
 import lightning as L
 import torch
 import wandb
 from lightning.pytorch.loggers import WandbLogger
+from pml.utils import setup_logger  # type: ignore
 from torch import Tensor, nn
 
 
@@ -28,6 +30,9 @@ class ReconstructionModule(L.LightningModule):
         """
         super().__init__()
 
+        self.mylogger = setup_logger(
+            __class__.__name__, log_path=Path(__file__).resolve().parent
+        )
         self._recon_criterion = criterion
         # Create Configuration as per Parent
         ####################
@@ -64,9 +69,6 @@ class ReconstructionModule(L.LightningModule):
 
         report_dict["batch_loss"] = loss.item()
 
-        # TODO: other optimizer
-        # scheduler.step()
-
         self.log(
             "train_loss", loss.mean().item(), prog_bar=True, on_step=True, on_epoch=True
         )
@@ -76,7 +78,7 @@ class ReconstructionModule(L.LightningModule):
         return loss
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=1e-4)
+        return torch.optim.Adam(self.model.parameters(), lr=0.0002)
 
     def validation_step(self, ref_batches: List[Tensor], batch_idx):
         # Whole of validation is here:
@@ -97,20 +99,22 @@ class ReconstructionModule(L.LightningModule):
         reconstructed_image = reconstructions[0]
 
         # 使用wandb.Image封裝圖片
-        wandb_original = wandb.Image(original_image, caption="Original")
-        wandb_reconstruction = wandb.Image(
-            reconstructed_image, caption=f"{self.global_step}th g-step Reconstruction"
-        )
+        if batch_idx == 0:
+            wandb_original = wandb.Image(original_image, caption="Original")
+            wandb_reconstruction = wandb.Image(
+                reconstructed_image,
+                caption=f"{self.global_step}th g-step Reconstruction",
+            )
+            wandb_logger = self.logger.experiment  # type:ignore
+            self.mylogger.info(f"wandb_logger is of type {type(wandb_logger)}")
+            wandb_logger.log(  # type:ignore
+                {"validation_images": [wandb_original, wandb_reconstruction]}
+            )
         # 上傳圖片到wandb
         # report_dict["val_examples"] = [wandb_original, wandb_reconstruction]
 
         self.log(
             "val_loss", loss.mean().item(), prog_bar=True, on_step=True, on_epoch=True
         )
-        wandb_logger = self.logger.experiment  # type:ignore
-        if isinstance(wandb_logger, WandbLogger):
-            wandb_logger.log(  # type:ignore
-                "validation_images", [wandb_original, wandb_reconstruction]
-            )
 
         return loss

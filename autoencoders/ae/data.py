@@ -61,8 +61,8 @@ class CelebADataset(Dataset):
     def __getitem__(self, index):
         filename, label = self.dataset[index]
         image = Image.open(os.path.join(self.root, "imgs/", filename))
-        # image_bw = image.convert("L") # TODO: add option if found necessary
-        return self.transform(image), torch.FloatTensor(label)
+        image_bw = image.convert("L")  # TODO: add option if found necessary
+        return self.transform(image_bw), torch.FloatTensor(label)
 
     def set_mode(self, mode: Mode):
         self.mode = mode
@@ -72,6 +72,8 @@ class CelebADataset(Dataset):
 
 
 class DataModule(L.LightningDataModule):
+    NAMES = ["train_ds.pt", "val_ds.pt", "test_ds.pt"]
+
     def __init__(
         self,
         root: str,
@@ -83,7 +85,6 @@ class DataModule(L.LightningDataModule):
         split_percents: List[float],
     ):
         super().__init__()
-        self.NAMES = ["train_ds.pt", "val_ds.pt", "test_ds.pt"]
         self.root = root
         self.attr_path = attr_path
         self.split_percents = split_percents
@@ -227,7 +228,7 @@ class DataModule(L.LightningDataModule):
     # Overwrites
     def val_dataloader(self):
         return CelebADataLoader(
-            self.train_dataset,
+            self.val_dataset,
             batch_size=self.batch_size,
             num_workers=12,
             shuffle=True,

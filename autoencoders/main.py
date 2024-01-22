@@ -26,7 +26,7 @@ from torchvision import transforms
 from tqdm import tqdm
 
 from ae.data import DataModule
-from ae.models import UNet
+from ae.models import SimpleAutoEncoder, UNet
 from ae.modules import ReconstructionModule
 
 parent_path = Path(__file__).resolve().parent.parent
@@ -38,8 +38,8 @@ torch.set_float32_matmul_precision("medium")
 
 def af():
     ap = ArgumentParser()
-    ap.add_argument("--epochs", default=20)
-    ap.add_argument("--batch_size", default=64)
+    ap.add_argument("--epochs", default=5)
+    ap.add_argument("--batch_size", default=8)
     ap.add_argument("--data_dir", default="./data")
     ap.add_argument("--cache_path", default="./.cache")
     ap.add_argument("--name_label_info", default="list_attr_celeba.txt")
@@ -130,14 +130,16 @@ with open(args.json_structure, "r") as f:
 
 # Get Image Data sizes from dataloader/dataset
 logger.info(f"Running Model with struture {json.dumps(json_structure, indent=4)}")
-model = UNet(
-    json_structure,
-    {
-        "channels": datamodule.channels,
-        "height": datamodule.image_height,
-        "width": datamodule.image_width,
-    },
-)
+# model = UNet(
+#     json_structure,
+#     {
+#         "channels": datamodule.channels,
+#         "height": datamodule.image_height,
+#         "width": datamodule.image_width,
+#     },
+# )
+model = SimpleAutoEncoder()
+# gender_classifier =
 # Optimizer
 recon_optimizer = torch.optim.Adam(model.parameters(), lr=args.recon_lr)
 # penalty_optimizer = torch.optim.Adam(model.parameters())
@@ -162,17 +164,16 @@ checkpoint_callback = ModelCheckpoint(
 trainer = L.Trainer(
     accelerator="gpu",
     logger=wandb_logger,
-    accumulate_grad_batches=4,
     max_epochs=args.epochs,
     val_check_interval=0.125,
     log_every_n_steps=1,
-    # enable_checkpointing=True,
-    # callbacks=[checkpoint_callback],
+    enable_checkpointing=True,
+    callbacks=[checkpoint_callback],
 )
 
 logger.info("Using Tuner to find batch size")
 tuner = Tuner(trainer)
-tuner.scale_batch_size(lightning_module, mode="binsearch", datamodule=datamodule)
+# tuner.scale_batch_size(lightning_module, mode="binsearch", datamodule=datamodule)
 
 
 logger.info("Fitting Model")
