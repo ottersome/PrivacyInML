@@ -240,7 +240,9 @@ class UNet(nn.Module):
         self.downslope = nn.Sequential()
         for i, spec in enumerate(specs["downslopes"]):
             inchan = (
-                specs["downslopes"][i - 1]["channel_out"] if i != 0 else 3
+                specs["downslopes"][i - 1]["channel_out"]
+                if i != 0
+                else og_size["channels"]
             )  # FIX: a bit too hard coded this channel
             outchan = spec["channel_out"]
             self.downslope.add_module(
@@ -281,7 +283,7 @@ class UNet(nn.Module):
             nn.Upsample((og_size["height"], og_size["width"]), mode="bilinear"),
             nn.Conv2d(
                 in_channels=specs["upslopes"][-1]["channel_out"] // 2,
-                out_channels=3,
+                out_channels=og_size["channels"],
                 padding=1,
                 kernel_size=3,
             ),
@@ -306,9 +308,9 @@ class UNet(nn.Module):
             cur_val = y
 
         # TODO: final 1x1 conv
-        final = self.fit_to_og_size(cur_val)
+        final_logits = self.fit_to_og_size(cur_val)
 
-        return final
+        return final_logits
 
 
 def center_crop_tensor(input_tensor, target_size):

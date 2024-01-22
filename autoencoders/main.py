@@ -14,18 +14,26 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 import debugpy
+import lightning as L
 import torch
+import torch.nn.functional as F
+from lightning.pytorch.callbacks import ModelCheckpoint
+from lightning.pytorch.loggers import WandbLogger
+from lightning.pytorch.tuner.tuning import Tuner
 from torch import nn
-from torchvision.transforms import transforms
+from torchvision import transforms
 from tqdm import tqdm
 
 import wandb
-from ae.data import CelebADataLoader, CelebADataset, Mode
-from ae.models import ConvVAE, UNet
+from ae.data import DataModule
+from ae.models import UNet
+from ae.modules import ReconstructionModule
 
 parent_path = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(parent_path))
 from pml.utils import setup_logger  # type: ignore
+
+torch.set_float32_matmul_precision("medium")
 
 
 def af():
@@ -40,7 +48,7 @@ def af():
 
     ap.add_argument("--latent_dim", type=int, default=1024)
     ap.add_argument("--log_interval", type=int, default=5)
-    ap.add_argument("--recon_lr", type=int, default=1e-4)
+    ap.add_argument("--recon_lr", type=int, default=1e-3)
     ap.add_argument(
         "--eval_period", type=int, default=500, help="How many epochs before eval"
     )
@@ -50,6 +58,7 @@ def af():
     ap.add_argument("--json_structure", default="./model_specs/unet0.json")
 
     ap.add_argument("-w", "--wandb", action="store_true")
+    ap.add_argument("--wpname", default=None, help="WANDB Project Name")
     ap.add_argument("--wrname", default=None, help="WANDB run name")
     ap.add_argument("--wrnotes", default=None, help="WANDB run notes")
     ap.add_argument("--wrtags", default=[], help="WANDB run tags")
@@ -57,50 +66,6 @@ def af():
     args = ap.parse_args()
     args.cache_path = Path(args.cache_path).resolve()
     return args
-
-
-def validation_function(model: nn.Module, dataloader) -> Dict[str, Any]:
-    model.eval()
-    val_loss = 0
-    report_dict = {}
-
-    valbar = tqdm(range(len(dataloader)), desc="Validating", position=3)
-    with torch.no_grad():
-        for batch_idx, (batch_imgs, batch_labels) in enumerate(dataloader):
-            batch_imgs = batch_imgs.to(device)
-            batch_labels = batch_labels.to(device)
-
-            output = model(batch_imgs)
-            loss = recon_criterion(output, batch_imgs)
-            val_loss = (batch_idx * val_loss) / (batch_idx + 1) + (
-                1 / (batch_idx + 1)
-            ) * loss.item()
-
-            valbar.set_description(f"ValLoss {loss.item()}")
-            valbar.update(1)
-
-    report_dict["val_loss"] = val_loss
-
-    # Single sample from datalaoder
-    sample = next(iter(dataloader))[0].to(device)
-
-    # 進行推理，獲得重建的圖片
-    reconstructions = model(sample)
-
-    # 選擇一個樣本來可視化
-    original_image = sample[0]  # 假設inputs是一個batch的圖片
-    reconstructed_image = reconstructions[0]
-
-    # 使用wandb.Image封裝圖片
-    wandb_original = wandb.Image(original_image, caption="Original")
-    wandb_reconstruction = wandb.Image(
-        reconstructed_image, caption=f"{epoch}th Epoch Reconstruction"
-    )
-    # 上傳圖片到wandb
-    report_dict["val_examples"] = [wandb_original, wandb_reconstruction]
-
-    model.train()
-    return report_dict
 
 
 args = af()
@@ -113,119 +78,97 @@ if args.debug:
     logger.info("Client connected. Resuming with debugging session.")
 
 
-device = torch.device("cpu")
-if torch.cuda.is_available():
-    device = torch.device("cuda")
-elif torch.backends.mps.is_available():  # type:ignore
-    device = torch.device("mps")
-else:
-    device = torch.device("cpu")
-
 # Initialize Wandb
-if args.wandb:
-    logger.info("🪄 Instantiating WandB")
-    wandb.init(
-        project="PrivateAutoEncoder",
-        name=args.wrname,
-        notes=args.wrnotes,
-        tags=args.wrtags,
-        config=vars(args),
-    )
-else:
-    logger.warn("⚠️ Not using Wandb")
+# if args.wandb:
+#     logger.info("🪄 Instantiating WandB")
+#     wandb.init(
+#         project="PrivateAutoEncoder",
+#         name=args.wrname,
+#         notes=args.wrnotes,
+#         tags=args.wrtags,
+#         config=vars(args),
+#     )
+# else:
+#     logger.warn("⚠️ Not using Wandb")
 
 
-dataset = CelebADataset(
-    args.data_dir,
-    os.path.join(args.data_dir, args.name_label_info),
-    args.cache_path,
-    args.selected_attrs,
-    transforms.ToTensor(),
-    Mode.TRAIN,
+# dataset = CelebADataset(
+#     args.data_dir,
+#     os.path.join(args.data_dir, args.name_label_info),
+#     args.cache_path,
+#     args.selected_attrs,
+#     transforms.ToTensor(),
+#     Mode.TRAIN,
+#     split_percents=args.split_percents,
+# )
+# dataloader = CelebADataLoader(
+#     dataset, batch_size=args.batch_size, shuffle=True, drop_last=True  # , num_workers=1
+# )
+L.seed_everything(0)
+datamodule = DataModule(
+    root=args.data_dir,
+    attr_path=os.path.join(args.data_dir, args.name_label_info),
+    cache_path=args.cache_path,
+    selected_attrs=args.selected_attrs,
+    transform=transforms.ToTensor(),
+    batch_size=args.batch_size,
     split_percents=args.split_percents,
 )
-dataloader = CelebADataLoader(
-    dataset, batch_size=args.batch_size, shuffle=True, drop_last=True  # , num_workers=1
-)
+datamodule.prepare_data()
 
-recon_criterion = nn.MSELoss()
-sensitive_penalty = nn.MSELoss()  # TODO:  set the right criterion
+recon_criterion = nn.BCEWithLogitsLoss()
+# recon_criterion = nn.CrossEntropyLoss()
+# sensitive_penalty = nn.MSELoss()  # TODO:  set the right criterion
+args.criterion = recon_criterion.__class__.__name__
+
 
 # Get AutoEncoder
-dims = [dataset.image_height, dataset.image_width]
 json_structure = []
 with open(args.json_structure, "r") as f:
     json_structure = json.load(f)
 
 # Get Image Data sizes from dataloader/dataset
-size = next(iter(dataloader))[0].shape
 logger.info(f"Running Model with struture {json.dumps(json_structure, indent=4)}")
 model = UNet(
-    json_structure, {"batch_size": size[0], "height": size[2], "width": size[3]}
-).to(device)
+    json_structure,
+    {
+        "channels": datamodule.channels,
+        "height": datamodule.image_height,
+        "width": datamodule.image_width,
+    },
+)
 # Optimizer
 recon_optimizer = torch.optim.Adam(model.parameters(), lr=args.recon_lr)
-penalty_optimizer = torch.optim.Adam(model.parameters())
+# penalty_optimizer = torch.optim.Adam(model.parameters())
 # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+wandb_logger = WandbLogger(project=args.wpname)
+
+lightning_module = ReconstructionModule(model, recon_criterion)
 
 
-num_batches = len(dataloader)
+checkpoint_callback = ModelCheckpoint(
+    dirpath="./checkpoints", save_top_k=3, monitor="val_loss"
+)
 
-# Training Loop
-ebar = tqdm(range(args.epochs), desc="Epoch", position=1)
-bbar = tqdm(range(num_batches), desc="Batch", position=2)
-epoch_loss = 0
-for epoch in range(args.epochs):
-    report_dict = {}
-    ebar.set_description(f"Last loss = {epoch_loss}, Going Through Batches")
-    bbar.reset()
-    epoch_loss = 0
-    for batch_idx, (batch_imgs, batch_labels) in enumerate(dataloader):
-        # Forward Pass
-        report_dict = {}
-        batch_imgs = batch_imgs.to(device)
-        batch_labels = batch_labels.to(device)
+trainer = L.Trainer(
+    accelerator="gpu",
+    devices=1,
+    logger=wandb_logger,
+    accumulate_grad_batches=4,
+    max_epochs=args.epochs,
+    val_check_interval=0.125,
+    log_every_n_steps=1,
+    enable_checkpointing=True,
+    callbacks=[checkpoint_callback],
+)
 
-        # Zero the Gradients
-        recon_optimizer.zero_grad()
+logger.info("Using Tuner to find batch size")
+tuner = Tuner(trainer)
+tuner.scale_batch_size(lightning_module, mode="binsearch", datamodule=datamodule)
 
-        # Forward Pass
-        output = model(batch_imgs)
 
-        # Loss
-        loss = recon_criterion(output, batch_imgs)
-        # TODO: penalty loss
+logger.info("Fitting Model")
+trainer.fit(model, datamodule=data_module)  # type: ignore
 
-        # Backprop
-        loss.backward()
-        epoch_loss = (batch_idx * epoch_loss) / (batch_idx + 1) + (
-            1 / (batch_idx + 1)
-        ) * loss.item()
-
-        report_dict["batch_loss"] = loss.item()
-
-        recon_optimizer.step()
-        # TODO: other optimizer
-        # scheduler.step()
-        bbar.set_description(f"RLoss {loss.item()}")
-        bbar.update(1)
-
-        bbar.set_description(f"Validating {loss.item()}")
-
-        if batch_idx % args.eval_period == 0:
-            dataset.set_mode(Mode.VALIDATE)
-            report_dict.update(validation_function(model, dataloader))
-        if batch_idx % args.log_interval == 0:
-            if args.wandb:
-                wandb.log(report_dict)
-
-    # DONE BATCH
-
-    # TODO: Change to recon loss
-    report_dict["epoch_loss"] = epoch_loss
-
-    ebar.set_description(f"Last loss = {epoch_loss}, Validating.")
-
-    wandb.log(report_dict)
-    ebar.update(1)
-    ebar.set_description(f"")
+logger.info("Saving checkpoint")
+trainer.save_checkpoint(args.checkpoint_path)
