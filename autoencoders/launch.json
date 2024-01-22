@@ -16,12 +16,13 @@
       "type": "python",
       "host": "127.0.0.1",
       "request": "attach",
-      "port": 42019,
+      "port": 42018,
+      "justMyCode": false,
       "subProcess": true,
       "pathMappings": [
         {
           "localRoot": "${workspaceFolder}",
-          "remoteRoot": "/home/racc/Lam/privacyinml/autoencoders/"
+          "remoteRoot": "/root/work/privml/autoencoders/"
         }
       ]
     }

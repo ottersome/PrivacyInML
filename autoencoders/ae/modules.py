@@ -5,9 +5,9 @@ from typing import List
 
 import lightning as L
 import torch
-from torch import Tensor, nn
-
 import wandb
+from lightning.pytorch.loggers import WandbLogger
+from torch import Tensor, nn
 
 
 class ReconstructionModule(L.LightningModule):
@@ -37,7 +37,7 @@ class ReconstructionModule(L.LightningModule):
 
     def forward(self, batch, attention_mask):
         """
-        For inference, also for guessing batch size
+        For inference, also for guessing batch siz
         """
         # Check if it is training
         inputs = batch
@@ -56,7 +56,7 @@ class ReconstructionModule(L.LightningModule):
         batch_imgs, batch_labels = batches
 
         # Forward Pass
-        output = self._model(batch_imgs)
+        output = self.model(batch_imgs)
 
         # Loss
         loss = self._recon_criterion(output, batch_imgs)
@@ -82,7 +82,7 @@ class ReconstructionModule(L.LightningModule):
         # Whole of validation is here:
         batch_imgs, batch_labels = ref_batches
 
-        output = self._model(batch_imgs)
+        output = self.model(batch_imgs)
 
         loss = self._recon_criterion(output, batch_imgs)
         # val_loss = (batch_idx * val_loss) / (batch_idx + 1) + (
@@ -90,7 +90,7 @@ class ReconstructionModule(L.LightningModule):
         # ) * loss.item()
 
         # 進行推理，獲得重建的圖片
-        reconstructions = self._model(batch_imgs)
+        reconstructions = self.model(batch_imgs)
 
         # 選擇一個樣本來可視化
         original_image = batch_imgs[0]  # 假設inputs是一個batch的圖片
@@ -108,6 +108,9 @@ class ReconstructionModule(L.LightningModule):
             "val_loss", loss.mean().item(), prog_bar=True, on_step=True, on_epoch=True
         )
         wandb_logger = self.logger.experiment  # type:ignore
-        wandb_logger.log("validation_images", [wandb_original, wandb_reconstruction])
+        if isinstance(wandb_logger, WandbLogger):
+            wandb_logger.log(  # type:ignore
+                "validation_images", [wandb_original, wandb_reconstruction]
+            )
 
         return loss

@@ -17,6 +17,7 @@ import debugpy
 import lightning as L
 import torch
 import torch.nn.functional as F
+import wandb
 from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.tuner.tuning import Tuner
@@ -24,7 +25,6 @@ from torch import nn
 from torchvision import transforms
 from tqdm import tqdm
 
-import wandb
 from ae.data import DataModule
 from ae.models import UNet
 from ae.modules import ReconstructionModule
@@ -54,11 +54,11 @@ def af():
     )
     ap.add_argument("--split_percents", default=[0.8, 0.1, 0.1])
     ap.add_argument("-d", "--debug", action="store_true")
-    ap.add_argument("-p", "--port", default=42019)
+    ap.add_argument("-p", "--port", default=42018)
     ap.add_argument("--json_structure", default="./model_specs/unet0.json")
 
     ap.add_argument("-w", "--wandb", action="store_true")
-    ap.add_argument("--wpname", default=None, help="WANDB Project Name")
+    ap.add_argument("--wpname", default="PrivateAutoEncoder", help="WANDB Project Name")
     ap.add_argument("--wrname", default=None, help="WANDB run name")
     ap.add_argument("--wrnotes", default=None, help="WANDB run notes")
     ap.add_argument("--wrtags", default=[], help="WANDB run tags")
@@ -104,6 +104,7 @@ if args.debug:
 # dataloader = CelebADataLoader(
 #     dataset, batch_size=args.batch_size, shuffle=True, drop_last=True  # , num_workers=1
 # )
+
 L.seed_everything(0)
 datamodule = DataModule(
     root=args.data_dir,
@@ -141,7 +142,15 @@ model = UNet(
 recon_optimizer = torch.optim.Adam(model.parameters(), lr=args.recon_lr)
 # penalty_optimizer = torch.optim.Adam(model.parameters())
 # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
-wandb_logger = WandbLogger(project=args.wpname)
+wandb_logger = None
+if args.wandb:
+    wandb_logger = WandbLogger(
+        project=args.wpname,
+        name=args.wrname,
+        notes=args.wrnotes,
+        tags=args.wrtags,
+        config=vars(args),
+    )
 
 lightning_module = ReconstructionModule(model, recon_criterion)
 
@@ -152,14 +161,13 @@ checkpoint_callback = ModelCheckpoint(
 
 trainer = L.Trainer(
     accelerator="gpu",
-    devices=1,
     logger=wandb_logger,
     accumulate_grad_batches=4,
     max_epochs=args.epochs,
     val_check_interval=0.125,
     log_every_n_steps=1,
-    enable_checkpointing=True,
-    callbacks=[checkpoint_callback],
+    # enable_checkpointing=True,
+    # callbacks=[checkpoint_callback],
 )
 
 logger.info("Using Tuner to find batch size")
@@ -168,7 +176,7 @@ tuner.scale_batch_size(lightning_module, mode="binsearch", datamodule=datamodule
 
 
 logger.info("Fitting Model")
-trainer.fit(model, datamodule=data_module)  # type: ignore
+trainer.fit(lightning_module, datamodule=datamodule)  # type: ignore
 
 logger.info("Saving checkpoint")
 trainer.save_checkpoint(args.checkpoint_path)

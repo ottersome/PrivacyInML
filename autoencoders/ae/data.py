@@ -51,7 +51,7 @@ class CelebADataset(Dataset):
 
     NAMES = ["train_ds.pt", "val_ds.pt", "test_ds.pt"]
 
-    def __init__(self, dataset: List, root: str, transform: transforms.Compose):
+    def __init__(self, dataset: List, root: str, transform):
         assert len(dataset) > 0, "Empty dataset?"
         self.root = root
         self.transform = transform
@@ -62,7 +62,7 @@ class CelebADataset(Dataset):
         filename, label = self.dataset[index]
         image = Image.open(os.path.join(self.root, "imgs/", filename))
         # image_bw = image.convert("L") # TODO: add option if found necessary
-        return self.transform(image), torch.FloatTensor(image)
+        return self.transform(image), torch.FloatTensor(label)
 
     def set_mode(self, mode: Mode):
         self.mode = mode
@@ -72,8 +72,6 @@ class CelebADataset(Dataset):
 
 
 class DataModule(L.LightningDataModule):
-    NAMES = ["train_ds.pt", "val_ds.pt", "test_ds.pt"]
-
     def __init__(
         self,
         root: str,
@@ -84,6 +82,8 @@ class DataModule(L.LightningDataModule):
         batch_size: int,
         split_percents: List[float],
     ):
+        super().__init__()
+        self.NAMES = ["train_ds.pt", "val_ds.pt", "test_ds.pt"]
         self.root = root
         self.attr_path = attr_path
         self.split_percents = split_percents
@@ -108,6 +108,9 @@ class DataModule(L.LightningDataModule):
         self.image_width = -1
         self.image_height = -1
         self.channels = -1
+
+    def setup(self, stage: str):
+        self.pre_prepare_data()
 
     def prepare_data(self):
         check_files = [exists(join(self.cache_path, name)) for name in self.NAMES]
@@ -216,6 +219,7 @@ class DataModule(L.LightningDataModule):
         return CelebADataLoader(
             self.train_dataset,
             batch_size=self.batch_size,
+            num_workers=12,
             shuffle=True,  # CHECK: we might not want this to compare images for sake of repeatability
             drop_last=True,  # , num_workers=1
         )
@@ -225,6 +229,7 @@ class DataModule(L.LightningDataModule):
         return CelebADataLoader(
             self.train_dataset,
             batch_size=self.batch_size,
+            num_workers=12,
             shuffle=True,
             drop_last=True,  # , num_workers=1
         )
