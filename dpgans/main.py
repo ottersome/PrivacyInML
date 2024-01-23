@@ -17,17 +17,16 @@ import debugpy
 import lightning as L
 import torch
 import torch.nn.functional as F
+import wandb
+from ae.data import DataModule
+from ae.models import SimpleAutoEncoder, UNet
+from ae.modules import ReconstructionModule
 from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.tuner.tuning import Tuner
 from torch import nn
 from torchvision import transforms
 from tqdm import tqdm
-
-import wandb
-from ae.data import DataModule
-from ae.models import SimpleAutoEncoder, UNet
-from ae.modules import ReconstructionModule
 
 parent_path = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(parent_path))
@@ -77,33 +76,6 @@ if args.debug:
     debugpy.wait_for_client()
     logger.info("Client connected. Resuming with debugging session.")
 
-
-# Initialize Wandb
-# if args.wandb:
-#     logger.info("🪄 Instantiating WandB")
-#     wandb.init(
-#         project="PrivateAutoEncoder",
-#         name=args.wrname,
-#         notes=args.wrnotes,
-#         tags=args.wrtags,
-#         config=vars(args),
-#     )
-# else:
-#     logger.warn("⚠️ Not using Wandb")
-
-
-# dataset = CelebADataset(
-#     args.data_dir,
-#     os.path.join(args.data_dir, args.name_label_info),
-#     args.cache_path,
-#     args.selected_attrs,
-#     transforms.ToTensor(),
-#     Mode.TRAIN,
-#     split_percents=args.split_percents,
-# )
-# dataloader = CelebADataLoader(
-#     dataset, batch_size=args.batch_size, shuffle=True, drop_last=True  # , num_workers=1
-# )
 
 L.seed_everything(0)
 datamodule = DataModule(
