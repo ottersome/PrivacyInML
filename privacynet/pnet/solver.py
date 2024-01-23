@@ -1,6 +1,16 @@
+import datetime
+import sys
+import time
+from pathlib import Path
+
 import torch
+import torch.nn.functional as F
 
 from pnet.models import Discriminator, Generator
+
+cur_path = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(cur_path))
+from pml.utils import create_logger  # type:ignore
 
 
 class Solver(object):
@@ -9,13 +19,17 @@ class Solver(object):
     def __init__(self, celeba_loader, rafd_loader, config):
         """Initialize configurations."""
 
+        # Logging
+        self.locallogger = create_logger(__class__.__name__)
+        self.use_wandb = config.wandb
+
         # Data loader.
         self.celeba_loader = celeba_loader
         self.rafd_loader = rafd_loader
 
         # Model configurations.
-        self.c_dim = config.c_dim
-        self.c2_dim = config.c2_dim
+        self.c_dim = config.c_dim  # Dimension of labels (First Dataset)
+        self.c2_dim = config.c2_dim  # Dimensions of labels (Second Dataset)
         self.image_size = config.image_size
         self.g_conv_dim = config.g_conv_dim
         self.d_conv_dim = config.d_conv_dim
@@ -38,11 +52,12 @@ class Solver(object):
         self.resume_iters = config.resume_iters
         self.selected_attrs = config.selected_attrs
 
+        self.locallogger.info(f"Using data located at {self.dataset}")
+
         # Test configurations.
         self.test_iters = config.test_iters
 
         # Miscellaneous.
-        self.use_tensorboard = config.use_tensorboard
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         # Directories.
@@ -59,8 +74,8 @@ class Solver(object):
 
         # Build the model and tensorboard.
         self.build_model()
-        if self.use_tensorboard:
-            self.build_tensorboard()
+        if self.use_wandb:
+            self.build_remotelogger()
 
     def build_model(self):
         """Create a generator and a discriminator."""
@@ -113,11 +128,13 @@ class Solver(object):
             torch.load(D_path, map_location=lambda storage, loc: storage)
         )
 
-    def build_tensorboard(self):
+    def build_remotelogger(self):
         """Build a tensorboard logger."""
-        import wandb
+        wandblogger = None
+        if self.use_wandb == "wandb":
+            import wandb  # type: ignore
 
-        wandblogger = wandb.init(project="StarGAN")
+            wandblogger = wandb.init(project="StarGAN")
 
         self.logger = wandblogger
 
@@ -345,7 +362,7 @@ class Solver(object):
                     log += ", {}: {:.4f}".format(tag, value)
                 print(log)
 
-                if self.use_tensorboard:
+                if self.use_wandb:
                     for tag, value in loss.items():
                         # self.logger.scalar_summary(tag, value, i + 1)
                         self.logger.log({tag: value})
@@ -564,7 +581,7 @@ class Solver(object):
                         log += ", {}: {:.4f}".format(tag, value)
                     print(log)
 
-                    if self.use_tensorboard:
+                    if self.use_wandb:
                         for tag, value in loss.items():
                             # self.logger.scalar_summary(tag, value, i + 1)
                             self.loggerlog({tag: value})

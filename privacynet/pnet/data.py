@@ -1,12 +1,17 @@
 import os
 import random
+import sys
 from itertools import chain
 from pathlib import Path
+
+new_path = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(new_path))
 
 import numpy as np
 import torch
 from munch import Munch
 from PIL import Image
+from pml.utils import setup_logger
 from torch.utils import data
 from torch.utils.data.sampler import WeightedRandomSampler
 from torchvision import transforms

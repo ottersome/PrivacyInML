@@ -89,6 +89,13 @@ if __name__ == "__main__":
         default=False,
         help="Use debugpy to debug",
     )
+    parser.add_argument(
+        "-w",
+        "--wandb",
+        action="store_true",
+        default=False,
+        help="Use debugpy to debug",
+    )
     parser.add_argument("-p", "--port", default=42018, type=int)
     parser.add_argument(
         "--c_dim", type=int, default=5, help="dimension of domain labels (1st dataset)"
@@ -191,7 +198,7 @@ if __name__ == "__main__":
     parser.add_argument("--use_tensorboard", type=str2bool, default=True)
 
     # Directories.
-    parser.add_argument("--celeba_image_dir", type=str, default="../../old_imgs")
+    parser.add_argument("--celeba_image_dir", type=str, default="../data/imgs")
     parser.add_argument("--attr_path", type=str, default="../data/list_attr_celeba.txt")
     parser.add_argument("--rafd_image_dir", type=str, default="data/RaFD/train")
     parser.add_argument("--log_dir", type=str, default="stargan/logs")
