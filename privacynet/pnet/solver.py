@@ -397,7 +397,7 @@ class Solver(object):
                 torch.save(self.D.state_dict(), D_path)
                 print("Saved model checkpoints into {}...".format(self.model_save_dir))
 
-            # Decay learning rates.
+            # Linear Decay learning rates.
             if (i + 1) % self.lr_update_step == 0 and (i + 1) > (
                 self.num_iters - self.num_iters_decay
             ):
