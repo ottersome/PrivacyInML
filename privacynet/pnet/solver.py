@@ -365,6 +365,14 @@ class Solver(object):
                     fake_embed = DeepFace.represent(
                         ocv_fake.detach().cpu().numpy(), enforce_detection=False
                     )
+                    # Calcualte the eucledian distance
+                    euc_dist = torch.norm(real_embed - fake_embed, p=2)
+                    cosine_dist = F.cosine_similarity(
+                        real_embed.unsqueeze(0), fake_embed.unsqueeze(0)
+                    )
+                    self.locallogger.debug(
+                        f"The euc_dist is {euc_dist} while cosine_dist {consine_dist}"
+                    )
 
                 # Backward and optimize.
                 g_loss = (
