@@ -143,6 +143,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--lambda_gp", type=float, default=10, help="weight for gradient penalty"
     )
+    parser.add_argument("--lambda_downstream", default=1, help="")
 
     # Training configuration.
     parser.add_argument(

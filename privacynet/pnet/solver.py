@@ -3,11 +3,14 @@ import os
 import sys
 import time
 from pathlib import Path
+from typing import List
 
 import numpy as np
 import torch
 import torch.nn.functional as F
+import wandb
 from torchvision.utils import save_image
+from tqdm import tqdm
 
 from deepface import DeepFace
 from pnet.losses import DescriptorLoss
@@ -44,6 +47,7 @@ class Solver(object):
         self.d_repeat_num = config.d_repeat_num
         self.lambda_cls = config.lambda_cls
         self.lambda_rec = config.lambda_rec
+        self.lambda_downstream = config.lambda_downstream
         self.lambda_gp = config.lambda_gp
         self.facedesc_weights_loc = config.facedesc_weights_loc
 
@@ -152,8 +156,6 @@ class Solver(object):
         """Build a tensorboard logger."""
         wandblogger = None
         if self.use_wandb == True:
-            import wandb  # type: ignore
-
             wandblogger = wandb.init(project="StarGAN")
 
         self.logger = wandblogger
@@ -199,7 +201,10 @@ class Solver(object):
         return out
 
     def create_labels(self, c_org, c_dim=5, dataset="CelebA", selected_attrs=None):
-        """Generate target domain labels for debugging and testing."""
+        """
+        Generate target domain labels for debugging and testing.
+        Each row will contain a single bit-flip from original labels
+        """
         # Get hair color indices.
         if dataset == "CelebA":
             hair_color_indices = []
@@ -245,10 +250,11 @@ class Solver(object):
 
         # Fetch fixed inputs for debugging.
         data_iter = iter(data_loader)
+        # x_fixed is for later human evaluation
         x_fixed, c_org = next(data_iter)
-        x_fixed = x_fixed.to(self.device)
+        x_fixed = x_fixed.to(self.device)[:4]
         c_fixed_list = self.create_labels(
-            c_org, self.c_dim, self.dataset, self.selected_attrs
+            c_org[:4], self.c_dim, self.dataset, self.selected_attrs
         )
 
         # Learning rate cache for decaying.
@@ -264,6 +270,7 @@ class Solver(object):
         # Start training.
         print("Start training...")
         start_time = time.time()
+        iterbar = tqdm(range(start_iters, self.num_iters), desc="Training")
         for i in range(start_iters, self.num_iters):
             # =================================================================================== #
             #                             1. Preprocess input data                                #
@@ -284,6 +291,7 @@ class Solver(object):
                 # CelebA are already one hot encoded
                 c_org = label_org.clone()
                 c_trg = label_trg.clone()
+
             elif self.dataset == "RaFD":
                 c_org = self.label2onehot(label_org, self.c_dim)
                 c_trg = self.label2onehot(label_trg, self.c_dim)
@@ -322,11 +330,8 @@ class Solver(object):
 
             # Backward and optimize.
             d_loss = (
-                d_loss_real
-                + d_loss_fake
-                + self.lambda_cls * d_loss_cls
-                + self.lambda_gp * d_loss_gp
-            )
+                d_loss_real + d_loss_fake + self.lambda_gp * d_loss_gp
+            ) + self.lambda_cls * d_loss_cls  # AdvLoss  # Classificaition Loss
             self.reset_grad()
             d_loss.backward()
             self.d_optimizer.step()
@@ -355,24 +360,28 @@ class Solver(object):
 
                 # TODO: the Descriptor loss
                 final_losses = []
-                for b in range(x_real.shape[0]):
-                    ocv_real = x_real[b].permute(1, 2, 0)
-                    ocv_fake = x_fake[b].permute(1, 2, 0)
-                    real_embed = DeepFace.represent(
-                        ocv_real.detach().cpu().numpy(),
-                        enforce_detection=False,
-                    )
-                    fake_embed = DeepFace.represent(
-                        ocv_fake.detach().cpu().numpy(), enforce_detection=False
-                    )
-                    # Calcualte the eucledian distance
-                    euc_dist = torch.norm(real_embed - fake_embed, p=2)
-                    cosine_dist = F.cosine_similarity(
-                        real_embed.unsqueeze(0), fake_embed.unsqueeze(0)
-                    )
-                    self.locallogger.debug(
-                        f"The euc_dist is {euc_dist} while cosine_dist {consine_dist}"
-                    )
+                # for b in range(x_real.shape[0]):
+                #     ocv_real = x_real[b].permute(1, 2, 0)
+                #     ocv_fake = x_fake[b].permute(1, 2, 0)
+                #     real_embed = torch.Tensor(
+                #         DeepFace.represent(
+                #             ocv_real.detach().cpu().numpy(),
+                #             enforce_detection=False,
+                #         )[0]["embedding"]
+                #     )
+                #     fake_embed = torch.Tensor(
+                #         DeepFace.represent(
+                #             ocv_fake.detach().cpu().numpy(), enforce_detection=False
+                #         )[0]["embedding"]
+                #     )
+                #     # Calcualte the eucledian distance
+                #     euc_dist = torch.norm(real_embed - fake_embed, p=2)
+                #     cosine_dist = F.cosine_similarity(
+                #         real_embed.unsqueeze(0), fake_embed.unsqueeze(0)
+                #     )
+                #     self.locallogger.debug(
+                #         f"The euc_dist is {euc_dist} while cosine_dist {cosine_dist}"
+                #     )
 
                 # Backward and optimize.
                 g_loss = (
@@ -412,23 +421,29 @@ class Solver(object):
 
             # Translate fixed images for debugging.
             if (i + 1) % self.sample_step == 0:
-                with torch.no_grad():
-                    x_fake_list = [x_fixed]
-                    for c_fixed in c_fixed_list:
-                        x_fake_list.append(self.G(x_fixed, c_fixed))
-                    x_concat = torch.cat(x_fake_list, dim=3)
-                    sample_path = os.path.join(
-                        self.sample_dir, "{}-images.jpg".format(i + 1)
-                    )
-                    save_image(
-                        self.denorm(x_concat.data.cpu()), sample_path, nrow=1, padding=0
-                    )
-                    print("Saved real and fake images into {}...".format(sample_path))
+                x_fake_list = [x_fixed]
+                for c_fixed in c_fixed_list:
+                    x_fake_list.append(self.G(x_fixed, c_fixed))
+                x_concat = torch.cat(x_fake_list, dim=3)
+                sample_path = os.path.join(
+                    self.sample_dir, "{}-images.jpg".format(i + 1)
+                )
+                save_image(
+                    self.denorm(x_concat.data.cpu()), sample_path, nrow=1, padding=0
+                )
+                # Send Image to Wandb
+                if self.use_wandb:
+                    self.logger.log({"sample": [wandb.Image(sample_path)]})
+                print("Saved real and fake images into {}...".format(sample_path))
 
             # Save model checkpoints.
             if (i + 1) % self.model_save_step == 0:
-                G_path = os.path.join(self.model_save_dir, "{}-G.ckpt".format(i + 1))
-                D_path = os.path.join(self.model_save_dir, "{}-D.ckpt".format(i + 1))
+                G_path = os.path.join(
+                    self.model_save_dir, "{}-G_baseline.ckpt".format(i + 1)
+                )
+                D_path = os.path.join(
+                    self.model_save_dir, "{}-D_baseline.ckpt".format(i + 1)
+                )
                 torch.save(self.G.state_dict(), G_path)
                 torch.save(self.D.state_dict(), D_path)
                 print("Saved model checkpoints into {}...".format(self.model_save_dir))
@@ -441,6 +456,24 @@ class Solver(object):
                 d_lr -= self.d_lr / float(self.num_iters_decay)
                 self.update_lr(g_lr, d_lr)
                 print("Decayed learning rates, g_lr: {}, d_lr: {}.".format(g_lr, d_lr))
+
+            iterbar.update(1)
+
+    def save_labeled_image(
+        self, x_fixed: torch.Tensor, c_fixed: torch.Tensor, attr_list: List[str]
+    ):
+        """
+        Take Fixed Image for debuggings and their labels
+        and plot them in a nice plot with labels
+        """
+        with torch.no_grad():
+            x_fake_list = [x_fixed]
+            for c_fixed in c_fixed_list[:4]:
+                x_fake_list.append(self.G(x_fixed, c_fixed))
+            x_concat = torch.cat(x_fake_list, dim=3)
+            sample_path = os.path.join(self.sample_dir, "{}-images.jpg".format(i + 1))
+            save_image(self.denorm(x_concat.data.cpu()), sample_path, nrow=1, padding=0)
+            print("Saved real and fake images into {}...".format(sample_path))
 
     def train_multi(self):
         """Train StarGAN with multiple datasets."""
