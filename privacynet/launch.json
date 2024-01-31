@@ -1,6 +1,21 @@
 {
   "configurations": [
     {
+      "name": "Python: Remote Debug",
+      "type": "python",
+      "host": "127.0.0.1",
+      "request": "attach",
+      "port": 42019,
+      "justMyCode": true,
+      "subProcess": true,
+      "pathMappings": [
+        {
+          "localRoot": "${workspaceFolder}",
+          "remoteRoot": "/root/work/privacynet/"
+        }
+      ]
+    },
+    {
       "name": "main",
       "type": "python",
       "request": "launch",
@@ -10,21 +25,6 @@
       "debugOptions": [],
       "program": "${workspaceFolder}/main.py",
       "justMyCode": true
-    },
-    {
-      "name": "Python: Remote Debug",
-      "type": "python",
-      "host": "127.0.0.1",
-      "request": "attach",
-      "port": 42018,
-      "justMyCode": false,
-      "subProcess": true,
-      "pathMappings": [
-        {
-          "localRoot": "${workspaceFolder}",
-          "remoteRoot": "/root/work/privml/privacynet/"
-        }
-      ]
     }
   ]
 }

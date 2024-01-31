@@ -9,7 +9,9 @@ import torch
 import torch.nn.functional as F
 from torchvision.utils import save_image
 
-from pnet.models import Discriminator, Generator
+from deepface import DeepFace
+from pnet.losses import DescriptorLoss
+from pnet.models import Discriminator, Generator, VGGFace
 
 cur_path = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(cur_path))
@@ -30,6 +32,8 @@ class Solver(object):
         self.celeba_loader = celeba_loader
         self.rafd_loader = rafd_loader
 
+        # Downstream Task Evaluation
+
         # Model configurations.
         self.c_dim = config.c_dim  # Dimension of labels (First Dataset)
         self.c2_dim = config.c2_dim  # Dimensions of labels (Second Dataset)
@@ -41,6 +45,7 @@ class Solver(object):
         self.lambda_cls = config.lambda_cls
         self.lambda_rec = config.lambda_rec
         self.lambda_gp = config.lambda_gp
+        self.facedesc_weights_loc = config.facedesc_weights_loc
 
         # Training configurations.
         self.dataset = config.dataset
@@ -86,15 +91,23 @@ class Solver(object):
 
     def build_model(self):
         """Create a generator and a discriminator."""
+
         if self.dataset in ["CelebA", "RaFD"]:
-            self.G = Generator(self.g_conv_dim, self.c_dim, self.g_repeat_num)
+            amnt_attrs = len(self.selected_attrs)
+            self.G = Generator(amnt_attrs)
             self.D = Discriminator(
                 self.image_size, self.d_conv_dim, self.c_dim, self.d_repeat_num
             )
+            # self.face_descriptor = VGGFace().to(self.device)
+            # self.face_descriptor.load_state_dict(
+            #     torch.load(self.facedesc_weights_loc, map_location=self.device)
+            # )
+            # self.descriptor_loss = DescriptorLoss(self.face_descriptor)
+
         elif self.dataset in ["Both"]:
-            self.G = Generator(
-                self.g_conv_dim, self.c_dim + self.c2_dim + 2, self.g_repeat_num
-            )  # 2 for mask vector.
+            assert False, "You should not be here"
+            amnt_attrs = len(self.celeba_loader.dataset.attr2idx)
+            self.G = Generator(amnt_attrs)
             self.D = Discriminator(
                 self.image_size,
                 self.d_conv_dim,
@@ -268,6 +281,7 @@ class Solver(object):
             label_trg = label_org[rand_idx]
 
             if self.dataset == "CelebA":
+                # CelebA are already one hot encoded
                 c_org = label_org.clone()
                 c_trg = label_trg.clone()
             elif self.dataset == "RaFD":
@@ -339,12 +353,26 @@ class Solver(object):
                 x_reconst = self.G(x_fake, c_org)
                 g_loss_rec = torch.mean(torch.abs(x_real - x_reconst))
 
+                # TODO: the Descriptor loss
+                final_losses = []
+                for b in range(x_real.shape[0]):
+                    ocv_real = x_real[b].permute(1, 2, 0)
+                    ocv_fake = x_fake[b].permute(1, 2, 0)
+                    real_embed = DeepFace.represent(
+                        ocv_real.detach().cpu().numpy(),
+                        enforce_detection=False,
+                    )
+                    fake_embed = DeepFace.represent(
+                        ocv_fake.detach().cpu().numpy(), enforce_detection=False
+                    )
+
                 # Backward and optimize.
                 g_loss = (
                     g_loss_fake
                     + self.lambda_rec * g_loss_rec
                     + self.lambda_cls * g_loss_cls
                 )
+
                 self.reset_grad()
                 g_loss.backward()
                 self.g_optimizer.step()

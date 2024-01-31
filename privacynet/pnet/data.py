@@ -7,16 +7,21 @@ from pathlib import Path
 new_path = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(new_path))
 
+from pathlib import Path
+
 import numpy as np
 import torch
 from munch import Munch
 from PIL import Image
-from pml.utils import setup_logger
 from torch.utils import data
 from torch.utils.data.sampler import WeightedRandomSampler
 from torchvision import transforms
 from torchvision import transforms as T
 from torchvision.datasets import ImageFolder
+
+parent = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(parent))
+from pml.utils import create_logger  # type: ignore
 
 """
 StarGan Start
@@ -37,6 +42,7 @@ class CelebA(data.Dataset):
         self.test_dataset = []
         self.attr2idx = {}
         self.idx2attr = {}
+        self.logger = create_logger(__class__.__name__)
         self.preprocess()
 
         if mode == "train":
@@ -48,13 +54,18 @@ class CelebA(data.Dataset):
         """Preprocess the CelebA attribute file."""
         lines = [line.rstrip() for line in open(self.attr_path, "r")]
         all_attr_names = lines[1].split()
+
         for i, attr_name in enumerate(all_attr_names):
             self.attr2idx[attr_name] = i
             self.idx2attr[i] = attr_name
 
+        self.logger.info(f"Working with CelebA with {len(self.attr2idx)} attributes")
         lines = lines[2:]
         random.seed(1234)
         random.shuffle(lines)
+        # CHECK: some attributes are mutually exlusive. e.g. blonde/black hair.
+        # this might affect our performance so could be a pain point to resolve later.
+
         for i, line in enumerate(lines):
             split = line.split()
             filename = split[0]
@@ -88,7 +99,7 @@ def get_loader(
     image_dir,
     attr_path,
     selected_attrs,
-    crop_size=178,
+    crop_size,
     image_size=128,
     batch_size=16,
     dataset="CelebA",

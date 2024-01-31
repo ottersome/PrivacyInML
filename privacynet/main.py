@@ -96,7 +96,7 @@ if __name__ == "__main__":
         default=False,
         help="Use debugpy to debug",
     )
-    parser.add_argument("-p", "--port", default=42018, type=int)
+    parser.add_argument("-p", "--port", default=42019, type=int)
     parser.add_argument(
         "--c_dim", type=int, default=5, help="dimension of domain labels (1st dataset)"
     )
@@ -192,6 +192,11 @@ if __name__ == "__main__":
         "--test_iters", type=int, default=200000, help="test model from this step"
     )
 
+    # Pretrained Weights
+    parser.add_argument(
+        "--facedesc_weights_loc", type=str, default="data/facedesc_weights.pth"
+    )
+
     # Miscellaneous.
     parser.add_argument("--num_workers", type=int, default=1)
     parser.add_argument("--mode", type=str, default="train", choices=["train", "test"])
@@ -211,6 +216,9 @@ if __name__ == "__main__":
     parser.add_argument("--sample_step", type=int, default=1000)
     parser.add_argument("--model_save_step", type=int, default=10000)
     parser.add_argument("--lr_update_step", type=int, default=1000)
+    parser.add_argument(
+        "--description_gen", type=str, default="CelebA", choices=["CelebA"]
+    )
 
     args = parser.parse_args()
 

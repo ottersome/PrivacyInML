@@ -2,6 +2,7 @@ import logging
 import os
 
 import matplotlib.pyplot as plt
+from deepface import DeepFace
 from torch import Tensor
 
 
