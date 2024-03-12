@@ -25,8 +25,8 @@ from munch import Munch
 from pml.utils import setup_logger  # type: ignore
 from torch.backends import cudnn
 
+from pnet.confounding_solver import Solver
 from pnet.data import get_loader
-from pnet.solver import Solver
 
 
 def str2bool(v):
@@ -96,6 +96,9 @@ if __name__ == "__main__":
         default=False,
         help="Use debugpy to debug",
     )
+    parser.add_argument("--wrname", default="", type=str, help="WanDBAI Run name")
+    parser.add_argument("--wrnotes", default="", type=str, help="WanDBAI Run Notes")
+
     parser.add_argument("-p", "--port", default=42019, type=int)
     parser.add_argument(
         "--c_dim", type=int, default=5, help="dimension of domain labels (1st dataset)"
@@ -134,7 +137,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--lambda_cls",
         type=float,
-        default=1,
+        default=5,
         help="weight for domain classification loss",
     )
     parser.add_argument(
@@ -143,13 +146,14 @@ if __name__ == "__main__":
     parser.add_argument(
         "--lambda_gp", type=float, default=10, help="weight for gradient penalty"
     )
-    parser.add_argument("--lambda_downstream", default=1, help="")
+    parser.add_argument("--lambda_ds", default=10, help="weight for Identifiability")
+    parser.add_argument("--lambda_cfd", default=1, help="weight for confounding")
 
     # Training configuration.
     parser.add_argument(
         "--dataset", type=str, default="CelebA", choices=["CelebA", "RaFD", "Both"]
     )
-    parser.add_argument("--batch_size", type=int, default=16, help="mini-batch size")
+    parser.add_argument("--batch_size", type=int, default=64, help="mini-batch size")
     parser.add_argument(
         "--num_iters",
         type=int,
@@ -182,10 +186,15 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--selected_attrs",
-        "--list",
         nargs="+",
         help="selected attributes for the CelebA dataset",
         default=["Black_Hair", "Blond_Hair", "Brown_Hair", "Male", "Young"],
+    )
+    parser.add_argument(
+        "--cfd_attrs",
+        nargs="+",
+        help="selected attributes for the CelebA dataset obfuscation.",
+        default=["Male"],
     )
 
     # Test configuration.
@@ -212,14 +221,21 @@ if __name__ == "__main__":
     parser.add_argument("--sample_dir", type=str, default="stargan/samples")
     parser.add_argument("--result_dir", type=str, default="stargan/results")
 
+    # Pretrained Weights
+    parser.add_argument("--ptrnd_D", type=str, default="privategan/models/ptrnd_D.ckpt")
+    parser.add_argument("--ptrnd_G", type=str, default="privategan/models/ptrnd_G.ckpt")
+
     # Step size.
     parser.add_argument("--log_step", type=int, default=10)
-    parser.add_argument("--sample_step", type=int, default=1000)
+    parser.add_argument("--sample_step", type=int, default=10)
     parser.add_argument("--model_save_step", type=int, default=10000)
     parser.add_argument("--lr_update_step", type=int, default=1000)
     parser.add_argument(
         "--description_gen", type=str, default="CelebA", choices=["CelebA"]
     )
+
+    # Identifiability (Downstream)
+    parser.add_argument("--identifiability", action="store_true", default=False)
 
     args = parser.parse_args()
 

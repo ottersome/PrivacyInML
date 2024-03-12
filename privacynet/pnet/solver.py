@@ -35,7 +35,12 @@ class Solver(object):
         self.celeba_loader = celeba_loader
         self.rafd_loader = rafd_loader
 
-        # Downstream Task Evaluation
+        # Run Config
+        self.run_name = config.wrname
+        self.run_notes = config.wrnotes
+
+        # Cheaty Config
+        self.cconfig = config
 
         # Model configurations.
         self.c_dim = config.c_dim  # Dimension of labels (First Dataset)
@@ -47,7 +52,7 @@ class Solver(object):
         self.d_repeat_num = config.d_repeat_num
         self.lambda_cls = config.lambda_cls
         self.lambda_rec = config.lambda_rec
-        self.lambda_downstream = config.lambda_downstream
+        self.lambda_ds = config.lambda_ds
         self.lambda_gp = config.lambda_gp
         self.facedesc_weights_loc = config.facedesc_weights_loc
 
@@ -78,6 +83,13 @@ class Solver(object):
         self.model_save_dir = config.model_save_dir
         self.result_dir = config.result_dir
 
+        # Identifiability(Downstream) Loss
+        self.ident_loss = config.identifiability
+
+        # Ensure existance of save_dir
+        if os.path.exists(self.model_save_dir) == False:
+            os.makedirs(self.model_save_dir)
+
         # Create Sample dir if not exists
         if os.path.exists(self.sample_dir) == False:
             os.makedirs(self.sample_dir)
@@ -89,11 +101,11 @@ class Solver(object):
         self.lr_update_step = config.lr_update_step
 
         # Build the model and tensorboard.
-        self.build_model()
+        self.build_model(config.ptrnd_D, config.ptrnd_G)
         if self.use_wandb:
             self.build_remotelogger()
 
-    def build_model(self):
+    def build_model(self, ptrnd_D: str, ptrnd_G: str):
         """Create a generator and a discriminator."""
 
         if self.dataset in ["CelebA", "RaFD"]:
@@ -102,11 +114,19 @@ class Solver(object):
             self.D = Discriminator(
                 self.image_size, self.d_conv_dim, self.c_dim, self.d_repeat_num
             )
-            # self.face_descriptor = VGGFace().to(self.device)
-            # self.face_descriptor.load_state_dict(
-            #     torch.load(self.facedesc_weights_loc, map_location=self.device)
-            # )
-            # self.descriptor_loss = DescriptorLoss(self.face_descriptor)
+            # Load Weights
+            both_GD_exist = [
+                os.path.exists(ptrnd_D),
+                os.path.exists(ptrnd_G),
+            ]
+            if all(both_GD_exist):
+                self.locallogger.info(
+                    "💾 Loading pretrained weights:"
+                    f"\n\tDiscriminator {ptrnd_D}"
+                    f"\n\tDiscriminator {ptrnd_G}"
+                )
+                self.G.load_state_dict(torch.load(ptrnd_G))
+                self.D.load_state_dict(torch.load(ptrnd_D))
 
         elif self.dataset in ["Both"]:
             assert False, "You should not be here"
@@ -120,10 +140,10 @@ class Solver(object):
             )
 
         self.g_optimizer = torch.optim.Adam(
-            self.G.parameters(), self.g_lr, [self.beta1, self.beta2]
+            self.G.parameters(), self.g_lr, [self.beta1, self.beta2]  # type: ignore
         )
         self.d_optimizer = torch.optim.Adam(
-            self.D.parameters(), self.d_lr, [self.beta1, self.beta2]
+            self.D.parameters(), self.d_lr, [self.beta1, self.beta2]  # type: ignore
         )
         self.print_network(self.G, "G")
         self.print_network(self.D, "D")
@@ -155,8 +175,14 @@ class Solver(object):
     def build_remotelogger(self):
         """Build a tensorboard logger."""
         wandblogger = None
+        run_name = self.run_name if self.run_name != "" else None
+        run_notes = self.run_notes if self.run_notes != "" else None
+        configs = vars(self.cconfig)
+
         if self.use_wandb == True:
-            wandblogger = wandb.init(project="StarGAN")
+            wandblogger = wandb.init(
+                project="StarGAN", name=run_name, notes=run_notes, config=configs  # type: ignore
+            )
 
         self.logger = wandblogger
 
@@ -216,11 +242,11 @@ class Solver(object):
         for i in range(c_dim):
             if dataset == "CelebA":
                 c_trg = c_org.clone()
-                if (
-                    i in hair_color_indices
+                if (  # type: ignore
+                    i in hair_color_indices  # type:ignore
                 ):  # Set one hair color to 1 and the rest to 0.
                     c_trg[:, i] = 1
-                    for j in hair_color_indices:
+                    for j in hair_color_indices:  # type: ignore
                         if j != i:
                             c_trg[:, j] = 0
                 else:
@@ -228,7 +254,7 @@ class Solver(object):
             elif dataset == "RaFD":
                 c_trg = self.label2onehot(torch.ones(c_org.size(0)) * i, c_dim)
 
-            c_trg_list.append(c_trg.to(self.device))
+            c_trg_list.append(c_trg.to(self.device))  # type: ignore
         return c_trg_list
 
     def classification_loss(self, logit, target, dataset="CelebA"):
@@ -249,7 +275,7 @@ class Solver(object):
             data_loader = self.rafd_loader
 
         # Fetch fixed inputs for debugging.
-        data_iter = iter(data_loader)
+        data_iter = iter(data_loader)  # type: ignore
         # x_fixed is for later human evaluation
         x_fixed, c_org = next(data_iter)
         x_fixed = x_fixed.to(self.device)[:4]
@@ -280,7 +306,7 @@ class Solver(object):
             try:
                 x_real, label_org = next(data_iter)
             except:
-                data_iter = iter(data_loader)
+                data_iter = iter(data_loader)  # type: ignore
                 x_real, label_org = next(data_iter)
 
             # Generate target domain labels randomly.
@@ -359,35 +385,41 @@ class Solver(object):
                 g_loss_rec = torch.mean(torch.abs(x_real - x_reconst))
 
                 # TODO: the Descriptor loss
-                final_losses = []
-                # for b in range(x_real.shape[0]):
-                #     ocv_real = x_real[b].permute(1, 2, 0)
-                #     ocv_fake = x_fake[b].permute(1, 2, 0)
-                #     real_embed = torch.Tensor(
-                #         DeepFace.represent(
-                #             ocv_real.detach().cpu().numpy(),
-                #             enforce_detection=False,
-                #         )[0]["embedding"]
-                #     )
-                #     fake_embed = torch.Tensor(
-                #         DeepFace.represent(
-                #             ocv_fake.detach().cpu().numpy(), enforce_detection=False
-                #         )[0]["embedding"]
-                #     )
-                #     # Calcualte the eucledian distance
-                #     euc_dist = torch.norm(real_embed - fake_embed, p=2)
-                #     cosine_dist = F.cosine_similarity(
-                #         real_embed.unsqueeze(0), fake_embed.unsqueeze(0)
-                #     )
-                #     self.locallogger.debug(
-                #         f"The euc_dist is {euc_dist} while cosine_dist {cosine_dist}"
-                #     )
+                g_loss_ident = 0
+                ident_losses = []
+                if self.ident_loss:
+                    for b in range(x_real.shape[0]):
+                        ocv_real = x_real[b].permute(1, 2, 0)
+                        ocv_fake = x_fake[b].permute(1, 2, 0)
+                        real_embed = torch.Tensor(
+                            DeepFace.represent(
+                                ocv_real.detach().cpu().numpy(),
+                                enforce_detection=False,
+                            )[0]["embedding"]
+                        )
+                        fake_embed = torch.Tensor(
+                            DeepFace.represent(
+                                ocv_fake.detach().cpu().numpy(), enforce_detection=False
+                            )[0]["embedding"]
+                        )
+                        # Calcualte the eucledian distance
+                        euc_dist = torch.norm(real_embed - fake_embed, p=2)
+                        cosine_dist = F.cosine_similarity(
+                            real_embed.unsqueeze(0), fake_embed.unsqueeze(0)
+                        )
+                        if (i + 1) % self.log_step == 0:
+                            self.locallogger.debug(
+                                f"The euc_dist is {euc_dist} while cosine_dist {cosine_dist}"
+                            )
+                        ident_losses.append(cosine_dist)
+                    g_loss_ident = torch.stack(ident_losses).mean()
 
                 # Backward and optimize.
                 g_loss = (
                     g_loss_fake
                     + self.lambda_rec * g_loss_rec
                     + self.lambda_cls * g_loss_cls
+                    + self.lambda_ds * g_loss_ident
                 )
 
                 self.reset_grad()
@@ -398,6 +430,8 @@ class Solver(object):
                 loss["G/loss_fake"] = g_loss_fake.item()
                 loss["G/loss_rec"] = g_loss_rec.item()
                 loss["G/loss_cls"] = g_loss_cls.item()
+                if self.ident_loss:
+                    loss["G/loss_ident"] = g_loss_ident.item()
 
             # =================================================================================== #
             #                                 4. Miscellaneous                                    #
